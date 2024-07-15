@@ -46,7 +46,7 @@ def calculate_slopes(elevate, i, j):
     ]
     return slopes
 
-def assign_probability(p, slope):
+def assign_probability_elevation(p, slope):
     """
     Assign a propagation probability based on the slope.
     p: base probability
