@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from elevation_propagation import propagate_fire_with_elevation
+from fire_propagation import propagate_fire_with_elevation
 
 # Parameters
 p = 1  # Base probability
