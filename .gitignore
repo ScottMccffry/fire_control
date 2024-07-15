@@ -1,2 +1,22 @@
-.dylib
-pycache
+# Ignore virtual environment
+venv/
+
+# Ignore Python bytecode files
+*.pyc
+__pycache__/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore environment variable files
+.env
+
+# Ignore log files
+*.log
+
+# Ignore model weights or large binaries (if necessary)
+*.h5
+*.pb
+
+# Ignore other large files
+*.dylib

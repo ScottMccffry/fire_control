@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import rasterio
-from fire_propagation import propagate_fire_with_elevation, propagate_fire
+from fire_propagation_dimensionless import propagate_fire_with_elevation, propagate_fire
 import cv2
 
 # Parameters
