@@ -1,0 +1,690 @@
+{
+  "config": {
+    "grid_size": [
+      100,
+      100
+    ],
+    "cell_size": 100.0,
+    "bounds": [
+      34.0,
+      -119.0,
+      35.0,
+      -118.0
+    ],
+    "ignition_points": [
+      [
+        30,
+        40
+      ],
+      [
+        60,
+        70
+      ],
+      [
+        20,
+        80
+      ]
+    ],
+    "refill_locations": [
+      [
+        34.2,
+        -118.8
+      ],
+      [
+        34.7,
+        -118.3
+      ],
+      [
+        34.5,
+        -118.6
+      ]
+    ],
+    "wind_speed": 8.0,
+    "wind_direction": 45.0,
+    "temperature": 30.0,
+    "humidity": 0.2
+  },
+  "simulation_params": {
+    "swarm_size": 100,
+    "simulation_hours": 2,
+    "time_step_minutes": 5,
+    "policy_type": "greedy"
+  },
+  "timestamps": [
+    "2025-05-31T16:21:27.217540",
+    "2025-05-31T16:26:27.217540",
+    "2025-05-31T16:31:27.217540",
+    "2025-05-31T16:36:27.217540",
+    "2025-05-31T16:41:27.217540",
+    "2025-05-31T16:46:27.217540",
+    "2025-05-31T16:51:27.217540",
+    "2025-05-31T16:56:27.217540",
+    "2025-05-31T17:01:27.217540",
+    "2025-05-31T17:06:27.217540",
+    "2025-05-31T17:11:27.217540",
+    "2025-05-31T17:16:27.217540",
+    "2025-05-31T17:21:27.217540",
+    "2025-05-31T17:26:27.217540",
+    "2025-05-31T17:31:27.217540",
+    "2025-05-31T17:36:27.217540",
+    "2025-05-31T17:41:27.217540",
+    "2025-05-31T17:46:27.217540",
+    "2025-05-31T17:51:27.217540",
+    "2025-05-31T17:56:27.217540",
+    "2025-05-31T18:01:27.217540",
+    "2025-05-31T18:06:27.217540",
+    "2025-05-31T18:11:27.217540",
+    "2025-05-31T18:16:27.217540"
+  ],
+  "fire_metrics": [
+    {
+      "total_burned_area_m2": 60000.0,
+      "active_fire_cells": 6,
+      "max_heat_intensity": 760.0,
+      "fire_perimeter_length": 17
+    },
+    {
+      "total_burned_area_m2": 80000.0,
+      "active_fire_cells": 8,
+      "max_heat_intensity": 722.0,
+      "fire_perimeter_length": 21
+    },
+    {
+      "total_burned_area_m2": 80000.0,
+      "active_fire_cells": 8,
+      "max_heat_intensity": 685.9,
+      "fire_perimeter_length": 21
+    },
+    {
+      "total_burned_area_m2": 90000.0,
+      "active_fire_cells": 9,
+      "max_heat_intensity": 651.6049999999999,
+      "fire_perimeter_length": 23
+    },
+    {
+      "total_burned_area_m2": 100000.0,
+      "active_fire_cells": 10,
+      "max_heat_intensity": 619.0247499999999,
+      "fire_perimeter_length": 24
+    },
+    {
+      "total_burned_area_m2": 110000.0,
+      "active_fire_cells": 11,
+      "max_heat_intensity": 588.0735124999999,
+      "fire_perimeter_length": 25
+    },
+    {
+      "total_burned_area_m2": 120000.0,
+      "active_fire_cells": 12,
+      "max_heat_intensity": 558.6698368749999,
+      "fire_perimeter_length": 27
+    },
+    {
+      "total_burned_area_m2": 120000.0,
+      "active_fire_cells": 12,
+      "max_heat_intensity": 530.7363450312498,
+      "fire_perimeter_length": 27
+    },
+    {
+      "total_burned_area_m2": 120000.0,
+      "active_fire_cells": 12,
+      "max_heat_intensity": 504.1995277796873,
+      "fire_perimeter_length": 27
+    },
+    {
+      "total_burned_area_m2": 120000.0,
+      "active_fire_cells": 12,
+      "max_heat_intensity": 478.9895513907029,
+      "fire_perimeter_length": 27
+    },
+    {
+      "total_burned_area_m2": 130000.0,
+      "active_fire_cells": 13,
+      "max_heat_intensity": 455.0400738211677,
+      "fire_perimeter_length": 29
+    },
+    {
+      "total_burned_area_m2": 160000.0,
+      "active_fire_cells": 16,
+      "max_heat_intensity": 601.2313120747717,
+      "fire_perimeter_length": 33
+    },
+    {
+      "total_burned_area_m2": 180000.0,
+      "active_fire_cells": 18,
+      "max_heat_intensity": 571.1697464710331,
+      "fire_perimeter_length": 32
+    },
+    {
+      "total_burned_area_m2": 180000.0,
+      "active_fire_cells": 18,
+      "max_heat_intensity": 542.6112591474814,
+      "fire_perimeter_length": 32
+    },
+    {
+      "total_burned_area_m2": 180000.0,
+      "active_fire_cells": 18,
+      "max_heat_intensity": 515.4806961901073,
+      "fire_perimeter_length": 32
+    },
+    {
+      "total_burned_area_m2": 200000.0,
+      "active_fire_cells": 20,
+      "max_heat_intensity": 489.70666138060193,
+      "fire_perimeter_length": 33
+    },
+    {
+      "total_burned_area_m2": 200000.0,
+      "active_fire_cells": 20,
+      "max_heat_intensity": 465.2213283115718,
+      "fire_perimeter_length": 33
+    },
+    {
+      "total_burned_area_m2": 200000.0,
+      "active_fire_cells": 20,
+      "max_heat_intensity": 441.9602618959932,
+      "fire_perimeter_length": 33
+    },
+    {
+      "total_burned_area_m2": 210000.0,
+      "active_fire_cells": 21,
+      "max_heat_intensity": 579.7350674938527,
+      "fire_perimeter_length": 33
+    },
+    {
+      "total_burned_area_m2": 210000.0,
+      "active_fire_cells": 21,
+      "max_heat_intensity": 550.7483141191601,
+      "fire_perimeter_length": 33
+    },
+    {
+      "total_burned_area_m2": 220000.0,
+      "active_fire_cells": 22,
+      "max_heat_intensity": 523.2108984132021,
+      "fire_perimeter_length": 34
+    },
+    {
+      "total_burned_area_m2": 220000.0,
+      "active_fire_cells": 22,
+      "max_heat_intensity": 497.050353492542,
+      "fire_perimeter_length": 34
+    },
+    {
+      "total_burned_area_m2": 220000.0,
+      "active_fire_cells": 22,
+      "max_heat_intensity": 472.1978358179149,
+      "fire_perimeter_length": 34
+    },
+    {
+      "total_burned_area_m2": 220000.0,
+      "active_fire_cells": 21,
+      "max_heat_intensity": 448.58794402701915,
+      "fire_perimeter_length": 34
+    }
+  ],
+  "swarm_metrics": [
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9983333333333333,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 8.333333333333334,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9966666666666665,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 16.666666666666668,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.995,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 25.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9933333333333332,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 33.333333333333336,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9916666666666663,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 41.666666666666664,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9899999999999999,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 50.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.988333333333333,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 58.333333333333336,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9866666666666662,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 66.66666666666667,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9849999999999995,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 75.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9833333333333327,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 83.33333333333333,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9816666666666662,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 91.66666666666667,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.98,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 100.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9783333333333332,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 108.33333333333333,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9766666666666661,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 116.66666666666667,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9749999999999993,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 125.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9733333333333326,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 133.33333333333334,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9716666666666659,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 141.66666666666666,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.969999999999999,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 150.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9683333333333326,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 158.33333333333334,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9666666666666657,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 166.66666666666666,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9649999999999994,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 175.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.963333333333333,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 183.33333333333334,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9616666666666656,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 191.66666666666666,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    },
+    {
+      "swarm_size": 100,
+      "operational_drones": 100,
+      "operational_percentage": 100.0,
+      "average_battery": 0.9599999999999989,
+      "average_water": 1.0,
+      "state_distribution": {
+        "flying_to_fire": 100
+      },
+      "total_missions_completed": 0,
+      "total_flight_time_hours": 200.0,
+      "total_water_dropped_liters": 0.0,
+      "total_fires_suppressed": 0,
+      "active_fire_assignments": 0,
+      "coordination_messages": 0,
+      "communication_network_density": 1.0,
+      "average_connections_per_drone": 0.0,
+      "water_drops_this_step": 0
+    }
+  ],
+  "summary": {
+    "total_burned_area_km2": 0.22,
+    "total_water_dropped_liters": 0.0,
+    "total_fires_suppressed": 0,
+    "avg_operational_drones": 100.0,
+    "total_missions_completed": 0
+  }
+}
