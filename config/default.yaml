@@ -1,0 +1,163 @@
+# Fire Control Drone Swarm - Default Configuration
+# ================================================
+
+# Drone Physical Properties
+drone:
+  max_flight_time_hours: 2.0
+  water_capacity_liters: 10.0
+  max_speed_mps: 15.0
+  water_drop_rate_lps: 5.0
+  refill_time_seconds: 30.0
+  battery_drain_rate: 0.02  # Per minute of flight
+  communication_range_m: 1000.0
+  sensor_range_m: 500.0
+
+  # Advanced physics (new)
+  acceleration_mps2: 3.0
+  deceleration_mps2: 5.0
+  min_altitude_m: 5.0
+  max_altitude_m: 150.0
+  payload_weight_kg: 10.0  # When full
+  empty_weight_kg: 5.0
+
+  # Battery model
+  battery:
+    capacity_wh: 500.0
+    hover_drain_rate: 0.025
+    flight_drain_rate: 0.02
+    drop_drain_rate: 0.015
+    low_battery_threshold: 0.2
+    critical_battery_threshold: 0.1
+
+# Fire Simulation
+fire:
+  grid_size: [100, 100]
+  cell_size_meters: 100.0
+  bounds: [34.0, -119.0, 35.0, -118.0]  # California region
+
+  # Spread parameters
+  base_spread_rate: 0.1
+  max_heat_intensity_kw: 1000.0
+  ignition_threshold_kw: 300.0
+  heat_decay_rate: 0.05
+
+  # Water effects
+  water_suppression_factor: 50.0
+  water_decay_rate: 0.1
+  max_water_suppression: 0.9
+
+  # Physics model
+  physics:
+    enable_rothermel: false  # Use Rothermel spread equations
+    spotting_enabled: false  # Ember transport
+    fuel_consumption_rate: 0.02
+
+# Swarm Configuration
+swarm:
+  size: 100
+  deployment_area: [34.0, -119.0, 35.0, -118.0]
+
+  # Coordination
+  assignment_strategy: "coordinated"  # random, greedy, coordinated, auction
+  coordination_interval_steps: 10
+  max_refill_queue: 10
+
+  # Parallel processing
+  max_workers: 8
+  chunk_size: 50
+
+# Simulation Settings
+simulation:
+  time_step_seconds: 300  # 5 minutes
+  max_steps: 500
+  random_seed: 42
+
+  # Logging
+  log_interval_steps: 10
+  save_metrics: true
+  metrics_path: "results/"
+
+# Training Configuration
+training:
+  # RL Algorithm
+  algorithm: "PPO"  # PPO, DQN, SAC, A2C
+
+  # Environment
+  env:
+    max_episode_steps: 200
+    reward_scale: 1.0
+    normalize_obs: true
+    normalize_reward: true
+
+  # PPO Hyperparameters
+  ppo:
+    learning_rate: 0.0003
+    n_steps: 2048
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  # DQN Hyperparameters
+  dqn:
+    learning_rate: 0.0001
+    buffer_size: 100000
+    learning_starts: 1000
+    batch_size: 32
+    tau: 0.005
+    gamma: 0.99
+    target_update_interval: 500
+    exploration_fraction: 0.1
+    exploration_final_eps: 0.05
+
+  # Training schedule
+  total_timesteps: 1000000
+  eval_freq: 10000
+  n_eval_episodes: 10
+  save_freq: 50000
+
+  # Checkpoints
+  checkpoint_dir: "checkpoints/"
+  log_dir: "logs/"
+
+# Reward Configuration
+rewards:
+  # Fire suppression
+  fire_suppressed_cell: 10.0
+  fire_intensity_reduction: 0.1
+
+  # Area protection
+  area_saved_per_cell: 5.0
+  critical_area_multiplier: 2.0
+
+  # Resource efficiency
+  water_efficiency_bonus: 1.0
+  battery_efficiency_bonus: 0.5
+
+  # Coordination
+  team_coordination_bonus: 2.0
+  coverage_bonus: 1.0
+
+  # Penalties
+  drone_lost_penalty: -50.0
+  fire_spread_penalty: -1.0
+  idle_drone_penalty: -0.1
+  collision_penalty: -20.0
+
+# Visualization
+visualization:
+  enabled: true
+  update_interval_ms: 100
+  show_drone_paths: true
+  show_fire_intensity: true
+  show_water_drops: true
+  colormap: "hot"
+
+  # Export
+  save_animation: false
+  animation_fps: 10
+  animation_format: "mp4"
