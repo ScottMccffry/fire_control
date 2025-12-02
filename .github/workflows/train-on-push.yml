@@ -1,0 +1,56 @@
+name: Train on Push
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+    paths:
+      - 'config/**'
+      - 'envs/**'
+      - 'agents/**'
+      - 'drones/**'
+      - 'sim/**'
+
+jobs:
+  train:
+    runs-on: self-hosted  # Uses YOUR local GPU machine
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Check GPU
+        run: |
+          python -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"None\"}')"
+
+      - name: Run training
+        run: |
+          python scripts/auto_train.py \
+            --timesteps 100000 \
+            --algorithm PPO \
+            --swarm-size 30
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model-${{ github.sha }}
+          path: checkpoints/
+          retention-days: 30
+
+      - name: Commit results (optional)
+        run: |
+          git config user.name "Training Bot"
+          git config user.email "bot@localhost"
+          git add results/ || true
+          git commit -m "Auto-training results for ${{ github.sha }}" || true
+          git push || true
