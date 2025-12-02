@@ -60,10 +60,12 @@ class MockFireSimulator:
         self.ambient_temp = 25.0  # Celsius
         self.humidity = 0.3  # relative humidity
         
-        # Fire spread parameters
-        self.base_spread_rate = 0.1  # base probability of spread per time step
+        # Fire spread parameters - tuned for realistic spread in 5-min steps
+        # At 100m cells with 5-min steps, real fires spread ~50-200m in moderate conditions
+        self.base_spread_rate = 0.35  # base probability of spread per time step
         self.max_heat_intensity = 1000.0  # kW/m²
-        self.ignition_threshold = 300.0  # kW/m² needed to ignite adjacent cells
+        self.ignition_threshold = 200.0  # kW/m² needed to ignite adjacent cells (lowered for spread)
+        self.heat_sustain_rate = 0.92  # heat retention per step (was 0.95, now fire burns longer)
         
         # History
         self.fire_history: List[FlameFont] = []
@@ -163,10 +165,11 @@ class MockFireSimulator:
         
         for i in range(rows):
             for j in range(cols):
-                # Decay existing heat
+                # Decay existing heat (use heat_sustain_rate, water increases decay)
                 if new_heat[i, j] > 0:
-                    decay_rate = 0.05 + self.water_effects[i, j] * 0.01  # Water increases decay
-                    new_heat[i, j] = max(0, new_heat[i, j] * (1 - decay_rate))
+                    water_decay = self.water_effects[i, j] * 0.02
+                    effective_sustain = self.heat_sustain_rate - water_decay
+                    new_heat[i, j] = max(0, new_heat[i, j] * effective_sustain)
                 
                 # Check if unburned cell should ignite
                 if self.burned_area[i, j] == 0:
