@@ -1,0 +1,101 @@
+# Fire Control - DGX Spark / High-End GPU Configuration
+# =====================================================
+# Optimized for NVIDIA Grace Blackwell / DGX Spark
+# 128GB unified memory, 1 PFLOP tensor performance
+
+# Drone Configuration - Scale up significantly
+drone:
+  max_flight_time_hours: 2.0
+  water_capacity_liters: 10.0
+  max_speed_mps: 15.0
+  water_drop_rate_lps: 5.0
+  refill_time_seconds: 30.0
+  battery_drain_rate: 0.02
+  communication_range_m: 1000.0
+  sensor_range_m: 500.0
+
+# Fire Simulation - Larger, more detailed
+fire:
+  grid_size: [150, 150]           # 15km x 15km at 100m resolution
+  cell_size_meters: 100.0
+  bounds: [34.0, -119.0, 35.5, -117.5]  # Larger California region
+  base_spread_rate: 0.35
+  max_heat_intensity_kw: 1000.0
+  ignition_threshold_kw: 200.0
+  heat_sustain_rate: 0.92
+
+# Swarm - Production scale
+swarm:
+  size: 500                       # 500 drones (can go to 5000)
+  deployment_area: [34.0, -119.0, 35.5, -117.5]
+  assignment_strategy: "coordinated"
+  max_workers: 32                 # Use many CPU cores
+
+# Training - Maximize GPU utilization
+training:
+  algorithm: "PPO"
+
+  # Environment parallelization
+  n_envs: 64                      # 64 parallel environments (128GB allows this)
+
+  # PPO Hyperparameters - Larger batches for GPU efficiency
+  ppo:
+    learning_rate: 0.0003
+    n_steps: 4096                 # Larger rollout buffer
+    batch_size: 512               # Larger batches = better GPU utilization
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  # Training schedule
+  total_timesteps: 10000000       # 10M steps (will train fast)
+  eval_freq: 50000
+  n_eval_episodes: 20
+  save_freq: 100000
+
+  # Model architecture - Larger network
+  policy_kwargs:
+    net_arch:
+      pi: [512, 512, 256]         # Larger policy network
+      vf: [512, 512, 256]         # Larger value network
+    activation_fn: "ReLU"
+
+  # Paths
+  checkpoint_dir: "checkpoints/"
+  log_dir: "logs/"
+
+# Environment settings
+env:
+  max_episode_steps: 300          # Longer episodes for larger scenarios
+  normalize_obs: true
+  normalize_reward: true
+  reward_scale: 1.0
+
+# Rewards - Same as default
+rewards:
+  fire_suppressed_cell: 10.0
+  fire_intensity_reduction: 0.1
+  area_saved_per_cell: 5.0
+  water_efficiency_bonus: 1.0
+  drone_lost_penalty: -50.0
+  fire_spread_penalty: -1.0
+  idle_drone_penalty: -0.1
+
+# Advanced training options
+advanced:
+  # Population-based training (optional)
+  use_pbt: false
+  pbt_population_size: 8
+
+  # Multi-GPU (if available)
+  multi_gpu: false
+
+  # Mixed precision (faster on Blackwell)
+  use_amp: true                   # Automatic mixed precision
+
+  # Gradient checkpointing (saves memory for larger models)
+  gradient_checkpointing: false
