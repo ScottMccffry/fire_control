@@ -54,6 +54,14 @@ class DroneFireEnv(gym.Env):
         drop_amount: float = 5.0,
         wind_speed: float = 6.0,
         wind_direction: float = 45.0,
+        # Fire-regime "difficulty" controls. The defaults reproduce the
+        # MockFireSimulator's own random ranges; harder presets use drier,
+        # denser fuel and a faster base spread rate so the fire becomes a
+        # sustained, spreading threat that drones must actively contain
+        # (otherwise it self-extinguishes and there is nothing to learn).
+        fuel_moisture_range: Tuple[float, float] = (0.1, 0.4),
+        fuel_load_range: Tuple[float, float] = (0.5, 1.0),
+        base_spread_rate: float = 0.1,
         seed: Optional[int] = None,
         render_mode: Optional[str] = None,
     ):
@@ -67,6 +75,9 @@ class DroneFireEnv(gym.Env):
         self.drop_amount = float(drop_amount)
         self.wind_speed = float(wind_speed)
         self.wind_direction = float(wind_direction)
+        self.fuel_moisture_range = tuple(fuel_moisture_range)
+        self.fuel_load_range = tuple(fuel_load_range)
+        self.base_spread_rate = float(base_spread_rate)
         self.render_mode = render_mode
 
         # Per-drone discrete movement -> MultiDiscrete([5, 5, ...])
@@ -127,13 +138,27 @@ class DroneFireEnv(gym.Env):
             temperature=30.0,
             humidity=0.2,
         )
+
+        # Apply the configured fire regime, overriding the simulator's default
+        # random fuel fields and base spread rate. Drier/denser fuel and a
+        # higher spread rate make the fire sustained and spreading.
+        lo, hi = self.fuel_moisture_range
+        self.sim.fuel_moisture = self._np_random.uniform(lo, hi, (self.grid, self.grid))
+        lo, hi = self.fuel_load_range
+        self.sim.fuel_load = self._np_random.uniform(lo, hi, (self.grid, self.grid))
+        self.sim.base_spread_rate = self.base_spread_rate
+
         self.sim.set_ignition_points(self._random_ignitions())
 
-        # Spread drones evenly along the top edge as a starting deployment.
+        # Pre-deploy drones in a roughly square grid pattern across the whole
+        # domain for coverage, so the swarm can reach a fire anywhere on the map.
         self.drone_pos = np.zeros((self.n_drones, 2), dtype=np.int64)
+        per_row = int(np.ceil(np.sqrt(self.n_drones)))
         for i in range(self.n_drones):
-            self.drone_pos[i, 0] = 0
-            self.drone_pos[i, 1] = int((i + 0.5) * self.grid / self.n_drones)
+            gr, gc = divmod(i, per_row)
+            self.drone_pos[i, 0] = int((gr + 0.5) * self.grid / per_row)
+            self.drone_pos[i, 1] = int((gc + 0.5) * self.grid / per_row)
+        self.drone_pos = np.clip(self.drone_pos, 0, self.grid - 1)
         self.drone_water = np.full(self.n_drones, self.water_capacity, dtype=np.float32)
 
         self.steps = 0
