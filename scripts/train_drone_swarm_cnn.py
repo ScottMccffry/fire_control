@@ -84,6 +84,61 @@ def collect_greedy_dataset(cfg, n_steps, base_seed):
     )
 
 
+def warmup_value(model, cfg, n_steps, gamma=0.99, lr=1e-3, epochs=4):
+    """Fit the value network to the current (behavior-cloned) policy's returns.
+
+    BC only trains the actor; the critic starts random, which makes the first
+    PPO updates produce noisy advantages that push the good actor off the BC
+    solution. Pre-fitting the critic (on frozen features) avoids that.
+    """
+    import torch
+
+    env = make_spatial_env(cfg)
+    maps, drones, rewards, dones = [], [], [], []
+    obs, _ = env.reset(seed=12345)
+    for t in range(n_steps):
+        a = model.predict(obs, deterministic=False)[0]
+        maps.append(obs["map"])
+        drones.append(obs["drones"])
+        obs, r, term, trunc, _ = env.step(a)
+        rewards.append(r)
+        dones.append(term or trunc)
+        if term or trunc:
+            obs, _ = env.reset(seed=12345 + t + 1)
+
+    # Monte-Carlo discounted returns (reset at episode boundaries).
+    returns = np.zeros(len(rewards), dtype=np.float32)
+    g = 0.0
+    for t in reversed(range(len(rewards))):
+        if dones[t]:
+            g = 0.0
+        g = rewards[t] + gamma * g
+        returns[t] = g
+
+    device = model.device
+    maps_t = torch.as_tensor(np.asarray(maps, dtype=np.float32), device=device)
+    drones_t = torch.as_tensor(np.asarray(drones, dtype=np.float32), device=device)
+    ret_t = torch.as_tensor(returns, device=device)
+    # Train only the critic head; leave the shared extractor and actor untouched.
+    params = (list(model.policy.value_net.parameters())
+              + list(model.policy.mlp_extractor.value_net.parameters()))
+    opt = torch.optim.Adam(params, lr=lr)
+    n = len(returns)
+    for epoch in range(epochs):
+        perm = torch.randperm(n, device=device)
+        total = 0.0
+        for s in range(0, n, 256):
+            idx = perm[s:s + 256]
+            obs = {"map": maps_t[idx], "drones": drones_t[idx]}
+            values = model.policy.predict_values(obs).squeeze(-1)
+            loss = ((values - ret_t[idx]) ** 2).mean()
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            total += loss.item() * len(idx)
+        print(f"      value warmup epoch {epoch + 1}/{epochs}  mse={total / n:.2f}")
+
+
 def behavior_clone(model, dataset, epochs, batch_size, lr):
     """Supervised imitation: maximize log-prob of greedy actions under policy."""
     import torch
@@ -122,6 +177,11 @@ def main():
     p.add_argument("--bc-batch", type=int, default=256)
     p.add_argument("--bc-lr", type=float, default=3e-4)
     p.add_argument("--timesteps", type=int, default=150000, help="PPO fine-tune timesteps")
+    p.add_argument("--ppo-lr", type=float, default=1e-4, help="PPO fine-tune learning rate")
+    p.add_argument("--ent-coef", type=float, default=0.0, help="PPO entropy coefficient")
+    p.add_argument("--target-kl", type=float, default=0.03, help="PPO KL drift limit")
+    p.add_argument("--value-warmup", type=int, default=20000,
+                   help="Steps to warm up the critic on the BC policy before PPO")
     p.add_argument("--n-envs", type=int, default=4)
     p.add_argument("--eval-episodes", type=int, default=12)
     p.add_argument("--seed", type=int, default=0)
@@ -169,18 +229,22 @@ def main():
         vec_env_cls=SubprocVecEnv if args.n_envs > 1 else None,
         vec_env_kwargs=vec_kwargs,
     )
-    # Map channels are already in [0,1]; only normalize the reward.
-    env = VecNormalize(env, norm_obs=False, norm_reward=True)
+    # No VecNormalize: observations are already in [0,1], and PPO normalizes
+    # advantages internally. Keeping raw rewards means the behavior-cloned
+    # critic warmup and PPO's value targets share the same return scale.
 
     policy_kwargs = dict(
         features_extractor_class=FireSwarmExtractor,
         features_extractor_kwargs=dict(cnn_out=128, drone_out=64),
         net_arch=dict(pi=[128, 128], vf=[128, 128]),
     )
+    # Fine-tune-friendly PPO: no entropy bonus (don't push the sharp BC policy
+    # back toward randomness), small LR, and a KL limit so it stays near BC.
     model = PPO(
         "MultiInputPolicy", env, seed=args.seed, verbose=1,
-        n_steps=512, batch_size=256, gamma=0.99, gae_lambda=0.95,
-        ent_coef=0.01, learning_rate=3e-4, policy_kwargs=policy_kwargs,
+        n_steps=512, batch_size=256, n_epochs=5, gamma=0.99, gae_lambda=0.95,
+        ent_coef=args.ent_coef, learning_rate=args.ppo_lr, target_kl=args.target_kl,
+        clip_range=0.2, policy_kwargs=policy_kwargs,
     )
 
     if not args.skip_bc:
@@ -206,11 +270,13 @@ def main():
     model_path = out_dir / f"drone_swarm_{tag}"
 
     if not args.skip_ppo and args.timesteps > 0:
+        if not args.skip_bc and args.value_warmup > 0:
+            print(f"\n[5b/7] Warming up critic on BC policy ({args.value_warmup} steps) ...")
+            warmup_value(model, cfg, args.value_warmup)
         print(f"\n[6/7] PPO fine-tuning ({args.timesteps} timesteps) ...")
         model.learn(total_timesteps=args.timesteps, progress_bar=False)
 
     model.save(str(model_path))
-    env.save(str(model_path) + "_vecnormalize.pkl")
     print(f"      saved {model_path}.zip")
 
     print("\n[7/7] Final evaluation ...")
