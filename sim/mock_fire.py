@@ -25,8 +25,14 @@ class MockFireSimulator:
     - Terrain slope
     - Fire intensity feedback
     """
-    
-    def __init__(self, 
+
+    # 8-connected neighbour offsets, in the scan order used by the (legacy)
+    # per-cell spread loop. The vectorized step relies on this ordering so that
+    # ties in neighbour heat resolve to the same direction.
+    _NEIGHBORS = [(-1, 0), (1, 0), (0, -1), (0, 1),
+                  (-1, -1), (-1, 1), (1, -1), (1, 1)]
+
+    def __init__(self,
                  grid_size: Tuple[int, int] = (100, 100),
                  cell_size_meters: float = 100.0,
                  bounds: Tuple[float, float, float, float] = (34.0, -119.0, 35.0, -118.0)):
@@ -153,29 +159,63 @@ class MockFireSimulator:
             Current FireState after the step
         """
         self.current_step += 1
-        
-        # Create new arrays for next state
-        new_burned = self.burned_area.copy()
-        new_heat = self.heat_intensity.copy()
-        
-        # Apply fire spread rules
-        rows, cols = self.grid_size
-        
-        for i in range(rows):
-            for j in range(cols):
-                # Decay existing heat
-                if new_heat[i, j] > 0:
-                    decay_rate = 0.05 + self.water_effects[i, j] * 0.01  # Water increases decay
-                    new_heat[i, j] = max(0, new_heat[i, j] * (1 - decay_rate))
-                
-                # Check if unburned cell should ignite
-                if self.burned_area[i, j] == 0:
-                    ignition_prob = self._calculate_ignition_probability(i, j)
-                    
-                    if random.random() < ignition_prob:
-                        new_burned[i, j] = 1
-                        new_heat[i, j] = self._calculate_initial_heat(i, j)
-        
+
+        # --- Vectorized fire spread (equivalent to the former per-cell loop) ---
+        H, W = self.grid_size
+        heat = self.heat_intensity
+        burned = self.burned_area
+
+        # 1) Heat decay; water accelerates it. Empty cells stay at 0.
+        decay_rate = 0.05 + self.water_effects * 0.01
+        new_heat = np.maximum(0.0, heat * (1.0 - decay_rate))
+
+        # 2) Hottest 8-connected neighbour, plus the wind factor for the
+        #    direction of that neighbour. Border neighbours are zero-filled.
+        padded = np.zeros((H + 2, W + 2), dtype=float)
+        padded[1:-1, 1:-1] = heat
+        max_adj = np.zeros((H, W), dtype=float)
+        wind_factor = np.ones((H, W), dtype=float)
+        for dr, dc in self._NEIGHBORS:
+            nbr = padded[1 + dr:1 + dr + H, 1 + dc:1 + dc + W]
+            fire_direction = np.degrees(np.arctan2(dr, dc))
+            wind_alignment = np.cos(np.radians(fire_direction - self.wind_direction))
+            wf = 1.0 + (self.wind_speed / 20.0) * max(0.0, float(wind_alignment))
+            # Keep the (first) hottest neighbour's wind factor, matching the
+            # original scan order and its strict-greater update rule.
+            newer = nbr > max_adj
+            wind_factor = np.where(newer, wf, wind_factor)
+            max_adj = np.where(newer, nbr, max_adj)
+
+        # 3) Slope factor (faster uphill); border cells are neutral (1.0).
+        padded_e = np.pad(self.elevation, 1, mode="edge")
+        max_slope = np.zeros((H, W), dtype=float)
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nbr_e = padded_e[1 + dr:1 + dr + H, 1 + dc:1 + dc + W]
+            max_slope = np.maximum(max_slope, (nbr_e - self.elevation) / self.cell_size)
+        slope_factor = np.minimum(2.0, 1.0 + np.maximum(0.0, max_slope) * 2.0)
+        slope_factor[0, :] = slope_factor[-1, :] = 1.0
+        slope_factor[:, 0] = slope_factor[:, -1] = 1.0
+
+        # 4) Ignition probability for unburned cells with a hot-enough neighbour.
+        candidate = (burned == 0) & (max_adj > self.ignition_threshold)
+        heat_factor = np.minimum(1.0, max_adj / self.max_heat_intensity)
+        fuel_factor = self.fuel_load * (1.0 - self.fuel_moisture)
+        water_suppression = np.minimum(0.9, self.water_effects / 50.0)
+        jitter = 0.8 + 0.4 * np.random.random((H, W))
+        prob = (self.base_spread_rate * heat_factor * fuel_factor
+                * wind_factor * slope_factor * (1.0 - water_suppression) * jitter)
+        prob = np.where(candidate, np.clip(prob, 0.0, 1.0), 0.0)
+
+        # 5) Stochastic ignition + initial heat for newly burned cells.
+        ignite = (np.random.random((H, W)) < prob) & candidate
+        init_jitter = 0.8 + 0.4 * np.random.random((H, W))
+        initial_heat = (self.max_heat_intensity * 0.6 * self.fuel_load
+                        * (1.0 - self.fuel_moisture) * init_jitter)
+
+        new_burned = burned.copy()
+        new_burned[ignite] = 1
+        new_heat = np.where(ignite, initial_heat, new_heat)
+
         # Update state
         self.burned_area = new_burned
         self.heat_intensity = new_heat

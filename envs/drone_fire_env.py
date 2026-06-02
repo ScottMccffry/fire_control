@@ -130,9 +130,10 @@ class DroneFireEnv(gym.Env):
         super().reset(seed=seed)
         if seed is not None:
             self._np_random = np.random.default_rng(seed)
-            # MockFireSimulator's spread uses Python's global RNG, so seed it
-            # too. This makes whole episodes reproducible, which is essential
-            # for *paired* policy comparison (same fire, different controller).
+            # MockFireSimulator's vectorized spread draws from NumPy's global
+            # RNG (and the legacy path from Python's), so seed both to make
+            # whole episodes reproducible for paired policy comparison.
+            np.random.seed(seed)
             random.seed(seed)
 
         self.sim = MockFireSimulator(
