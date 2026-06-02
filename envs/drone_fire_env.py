@@ -65,6 +65,7 @@ class DroneFireEnv(gym.Env):
         fuel_load_range: Tuple[float, float] = (0.5, 1.0),
         base_spread_rate: float = 0.1,
         engagement_coef: float = 0.1,
+        obs_mode: str = "flat",
         seed: Optional[int] = None,
         render_mode: Optional[str] = None,
     ):
@@ -82,16 +83,42 @@ class DroneFireEnv(gym.Env):
         self.fuel_load_range = tuple(fuel_load_range)
         self.base_spread_rate = float(base_spread_rate)
         self.engagement_coef = float(engagement_coef)
+        if obs_mode not in ("flat", "spatial"):
+            raise ValueError("obs_mode must be 'flat' or 'spatial'")
+        self.obs_mode = obs_mode
         self.render_mode = render_mode
 
         # Per-drone discrete movement -> MultiDiscrete([5, 5, ...])
         self.action_space = spaces.MultiDiscrete([len(_MOVES)] * self.n_drones)
 
-        # Observation: flattened normalized heat map + (row, col, water) per drone
-        obs_dim = self.grid * self.grid + 3 * self.n_drones
-        self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32
-        )
+        # Observation space.
+        #  * "flat":    1D vector (heat map + per-drone features) for MLP policies.
+        #  * "spatial": Dict of a multi-channel map (for a CNN) plus a per-drone
+        #               vector (so per-drone identity is preserved for the action
+        #               head). Channels: heat, burned, drone-density, fuel.
+        self._n_map_channels = 4
+        # Spatial per-drone features: row, col, water, plus an egocentric bearing
+        # to the nearest active fire cell (unit dx, unit dy, normalized distance).
+        # The bearing grounds each drone's local decision; the CNN map still
+        # carries global context for coordination beyond a greedy "nearest fire".
+        self._drone_feat = 6
+        if obs_mode == "flat":
+            obs_dim = self.grid * self.grid + 3 * self.n_drones
+            self.observation_space = spaces.Box(
+                low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32
+            )
+        else:
+            self.observation_space = spaces.Dict({
+                "map": spaces.Box(
+                    low=0.0, high=1.0,
+                    shape=(self._n_map_channels, self.grid, self.grid),
+                    dtype=np.float32,
+                ),
+                "drones": spaces.Box(
+                    low=-1.0, high=1.0,
+                    shape=(self._drone_feat * self.n_drones,), dtype=np.float32
+                ),
+            })
 
         # State, populated on reset()
         self.sim: Optional[MockFireSimulator] = None
@@ -104,17 +131,53 @@ class DroneFireEnv(gym.Env):
         self._np_random = np.random.default_rng(seed)
 
     # ------------------------------------------------------------------ utils
-    def _build_observation(self) -> np.ndarray:
-        heat = self.sim.heat_intensity / self.sim.max_heat_intensity
-        heat = np.clip(heat, 0.0, 1.0).astype(np.float32).ravel()
-
+    def _drone_vector(self) -> np.ndarray:
         drones = np.empty(3 * self.n_drones, dtype=np.float32)
+        denom = max(1, self.grid - 1)
         for i in range(self.n_drones):
-            drones[3 * i + 0] = self.drone_pos[i, 0] / max(1, self.grid - 1)
-            drones[3 * i + 1] = self.drone_pos[i, 1] / max(1, self.grid - 1)
+            drones[3 * i + 0] = self.drone_pos[i, 0] / denom
+            drones[3 * i + 1] = self.drone_pos[i, 1] / denom
             drones[3 * i + 2] = self.drone_water[i] / self.water_capacity
+        return drones
 
-        return np.concatenate([heat, drones]).astype(np.float32)
+    def _build_observation(self):
+        heat = np.clip(
+            self.sim.heat_intensity / self.sim.max_heat_intensity, 0.0, 1.0
+        ).astype(np.float32)
+        drones = self._drone_vector()
+
+        if self.obs_mode == "flat":
+            return np.concatenate([heat.ravel(), drones]).astype(np.float32)
+
+        # Spatial: multi-channel map + per-drone vector (with bearing to fire).
+        burned = self.sim.burned_area.astype(np.float32)
+        density = np.zeros((self.grid, self.grid), dtype=np.float32)
+        np.add.at(density, (self.drone_pos[:, 0], self.drone_pos[:, 1]), 1.0)
+        density = np.clip(density, 0.0, 1.0)
+        fuel = np.clip(
+            self.sim.fuel_load * (1.0 - self.sim.fuel_moisture), 0.0, 1.0
+        ).astype(np.float32)
+        maps = np.stack([heat, burned, density, fuel], axis=0).astype(np.float32)
+
+        # Per-drone bearing to nearest active fire cell.
+        thr = self.sim.ignition_threshold * 0.3
+        active = self.sim.heat_intensity > thr
+        feat = np.zeros((self.n_drones, self._drone_feat), dtype=np.float32)
+        feat[:, 0] = self.drone_pos[:, 0] / max(1, self.grid - 1)
+        feat[:, 1] = self.drone_pos[:, 1] / max(1, self.grid - 1)
+        feat[:, 2] = self.drone_water / self.water_capacity
+        if active.any():
+            _, (ir, ic) = ndimage.distance_transform_edt(~active, return_indices=True)
+            r = self.drone_pos[:, 0]
+            c = self.drone_pos[:, 1]
+            dr = ir[r, c] - r
+            dc = ic[r, c] - c
+            dist = np.sqrt(dr * dr + dc * dc)
+            norm = np.maximum(dist, 1e-6)
+            feat[:, 3] = dr / norm                       # unit row direction
+            feat[:, 4] = dc / norm                       # unit col direction
+            feat[:, 5] = np.clip(dist / self.grid, 0, 1)  # normalized distance
+        return {"map": maps, "drones": feat.ravel()}
 
     def _random_ignitions(self):
         pts = []
