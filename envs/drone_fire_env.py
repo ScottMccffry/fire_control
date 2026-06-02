@@ -62,6 +62,7 @@ class DroneFireEnv(gym.Env):
         fuel_moisture_range: Tuple[float, float] = (0.1, 0.4),
         fuel_load_range: Tuple[float, float] = (0.5, 1.0),
         base_spread_rate: float = 0.1,
+        engagement_coef: float = 0.3,
         seed: Optional[int] = None,
         render_mode: Optional[str] = None,
     ):
@@ -78,6 +79,7 @@ class DroneFireEnv(gym.Env):
         self.fuel_moisture_range = tuple(fuel_moisture_range)
         self.fuel_load_range = tuple(fuel_load_range)
         self.base_spread_rate = float(base_spread_rate)
+        self.engagement_coef = float(engagement_coef)
         self.render_mode = render_mode
 
         # Per-drone discrete movement -> MultiDiscrete([5, 5, ...])
@@ -203,11 +205,27 @@ class DroneFireEnv(gym.Env):
         self._prev_burned = burned
         active_cells = len(self.sim.get_active_fire_cells())
 
+        # Dense engagement shaping: reward the swarm for being close to the
+        # active flame front. This gives the policy a usable gradient toward the
+        # winning behavior (the same "go to the nearest active fire" strategy a
+        # greedy controller uses) even on steps where it cannot yet change the
+        # total burned area, which is otherwise dominated by natural spread.
+        engagement = 0.0
+        thr = self.sim.ignition_threshold * 0.3
+        active_rc = np.argwhere(self.sim.heat_intensity > thr)
+        if active_rc.shape[0] > 0:
+            dist = np.abs(
+                self.drone_pos[:, None, :] - active_rc[None, :, :]
+            ).sum(axis=2)
+            nearest = dist.min(axis=1) / (2.0 * self.grid)
+            engagement = float((1.0 - nearest).mean())
+
         reward = (
             -1.0 * new_burned
             - 0.01 * active_cells
             + 0.02 * (suppressed_heat / self.sim.max_heat_intensity)
             + 0.05 * drops
+            + self.engagement_coef * engagement
         )
 
         fire_extinguished = active_cells == 0 and self.steps > 1

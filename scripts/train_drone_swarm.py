@@ -74,8 +74,13 @@ def make_env(args):
     return DroneFireEnv(**build_env_kwargs(args))
 
 
-def evaluate(model, env, episodes: int = 5, deterministic: bool = True):
-    """Roll out a policy (or None for a random/no-op baseline) and average stats."""
+def evaluate(model, env, episodes: int = 5, deterministic: bool = True, normalizer=None):
+    """Roll out a policy (or None for a random/no-op baseline) and average stats.
+
+    If ``normalizer`` (a fitted VecNormalize) is given, raw observations are
+    normalized with its running statistics before being passed to the policy,
+    matching the way the policy was trained.
+    """
     burned, rewards, extinguished = [], [], 0
     for _ in range(episodes):
         obs, _ = env.reset()
@@ -86,7 +91,8 @@ def evaluate(model, env, episodes: int = 5, deterministic: bool = True):
             if model is None:
                 action = env.action_space.sample()
             else:
-                action, _ = model.predict(obs, deterministic=deterministic)
+                pred_obs = normalizer.normalize_obs(obs) if normalizer is not None else obs
+                action, _ = model.predict(pred_obs, deterministic=deterministic)
             obs, reward, terminated, truncated, info = env.step(action)
             ep_reward += reward
             done = terminated or truncated
@@ -120,7 +126,7 @@ def main():
     # Imported here so `--help` works even before sb3 is installed.
     from stable_baselines3 import PPO
     from stable_baselines3.common.env_checker import check_env
-    from stable_baselines3.common.vec_env import SubprocVecEnv
+    from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
     from stable_baselines3.common.env_util import make_vec_env
 
     cfg = build_env_kwargs(args)
@@ -147,6 +153,10 @@ def main():
         vec_env_cls=vec_cls,
         vec_env_kwargs=vec_kwargs,
     )
+    # Normalize observations and rewards: PPO is sensitive to input/return
+    # scale, and the raw reward here spans large negative values dominated by
+    # natural fire spread. Normalization is what lets the policy learn.
+    env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
     # Baseline (random actions) before training, for comparison.
     print("\n[2/4] Evaluating random baseline ...")
@@ -181,10 +191,11 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     model_path = out_dir / f"drone_swarm_{args.algo}_{args.difficulty}_g{cfg['grid_size']}_d{cfg['n_drones']}"
     model.save(str(model_path))
+    env.save(str(model_path) + "_vecnormalize.pkl")
     print(f"      model saved to {model_path}.zip")
 
     print("\n[4/4] Evaluating trained policy ...")
-    trained = evaluate(model, make_env(args), episodes=args.eval_episodes)
+    trained = evaluate(model, make_env(args), episodes=args.eval_episodes, normalizer=env)
     print(f"      trained:  burned={trained['mean_burned_cells']:.1f} cells, "
           f"reward={trained['mean_reward']:.2f}, "
           f"extinguish_rate={trained['extinguish_rate']:.0%}")
