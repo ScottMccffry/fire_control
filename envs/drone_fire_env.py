@@ -26,6 +26,7 @@ import random
 from typing import Optional, Tuple
 
 import numpy as np
+from scipy import ndimage
 import gymnasium as gym
 from gymnasium import spaces
 
@@ -63,7 +64,7 @@ class DroneFireEnv(gym.Env):
         fuel_moisture_range: Tuple[float, float] = (0.1, 0.4),
         fuel_load_range: Tuple[float, float] = (0.5, 1.0),
         base_spread_rate: float = 0.1,
-        engagement_coef: float = 0.3,
+        engagement_coef: float = 0.1,
         seed: Optional[int] = None,
         render_mode: Optional[str] = None,
     ):
@@ -205,32 +206,43 @@ class DroneFireEnv(gym.Env):
         self.steps += 1
 
         # 4) Reward shaping.
+        #
+        # The true objective is to minimize burned area, but that signal is
+        # sparse and dominated by natural fire spread. Earlier shaping that
+        # rewarded mere *proximity* to the fire was gamed by the policy (hover
+        # next to the flame front without ever dropping water). So the dense
+        # terms here reward *actual suppression* — water drops and heat removed,
+        # which can only happen when a drone stands on a burning cell with water
+        # — plus productive positioning (drones on active cells). A small
+        # proximity term (strictly weaker than the on-fire/drop terms) aids
+        # exploration on large grids without being gameable.
         burned = int(self.sim.burned_area.sum())
         new_burned = max(0, burned - self._prev_burned)
         self._prev_burned = burned
-        active_cells = len(self.sim.get_active_fire_cells())
 
-        # Dense engagement shaping: reward the swarm for being close to the
-        # active flame front. This gives the policy a usable gradient toward the
-        # winning behavior (the same "go to the nearest active fire" strategy a
-        # greedy controller uses) even on steps where it cannot yet change the
-        # total burned area, which is otherwise dominated by natural spread.
-        engagement = 0.0
         thr = self.sim.ignition_threshold * 0.3
-        active_rc = np.argwhere(self.sim.heat_intensity > thr)
-        if active_rc.shape[0] > 0:
-            dist = np.abs(
-                self.drone_pos[:, None, :] - active_rc[None, :, :]
-            ).sum(axis=2)
-            nearest = dist.min(axis=1) / (2.0 * self.grid)
-            engagement = float((1.0 - nearest).mean())
+        active_mask = self.sim.heat_intensity > thr
+        active_cells = int(active_mask.sum())
+
+        rows = self.drone_pos[:, 0]
+        cols = self.drone_pos[:, 1]
+        on_fire = int(active_mask[rows, cols].sum())
+
+        # Cheap exploration nudge: closeness to the nearest active cell via an
+        # exact Euclidean distance transform (scales to large grids).
+        proximity = 0.0
+        if active_cells > 0:
+            dist_map = ndimage.distance_transform_edt(~active_mask)
+            d = dist_map[rows, cols] / self.grid
+            proximity = float(np.exp(-5.0 * d).mean())
 
         reward = (
             -1.0 * new_burned
             - 0.01 * active_cells
-            + 0.02 * (suppressed_heat / self.sim.max_heat_intensity)
-            + 0.05 * drops
-            + self.engagement_coef * engagement
+            + 1.0 * drops                                       # actual drop (on-fire + water)
+            + 0.5 * (suppressed_heat / self.sim.max_heat_intensity)
+            + 0.3 * (on_fire / self.n_drones)                   # productive positioning
+            + self.engagement_coef * proximity                  # small exploration aid
         )
 
         fire_extinguished = active_cells == 0 and self.steps > 1

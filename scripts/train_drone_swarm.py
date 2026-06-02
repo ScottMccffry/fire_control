@@ -51,6 +51,13 @@ DIFFICULTY_PRESETS = {
         wind_speed=12.0, fuel_moisture_range=(0.05, 0.18),
         fuel_load_range=(0.75, 1.0), base_spread_rate=0.20,
     ),
+    # Large WRF-SFIRE-scale-ish grid. Under-resourced on drones relative to the
+    # grid (genuinely hard); used to probe how much learning happens quickly.
+    "large": dict(
+        grid_size=100, n_drones=40, max_steps=150, n_ignitions=5,
+        wind_speed=9.0, fuel_moisture_range=(0.06, 0.22),
+        fuel_load_range=(0.65, 1.0), base_spread_rate=0.17,
+    ),
 }
 
 
