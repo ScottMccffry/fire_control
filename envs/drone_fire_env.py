@@ -22,6 +22,7 @@ Design summary
   water drops, so the policy learns to get ahead of the flame front.
 """
 
+import random
 from typing import Optional, Tuple
 
 import numpy as np
@@ -128,6 +129,10 @@ class DroneFireEnv(gym.Env):
         super().reset(seed=seed)
         if seed is not None:
             self._np_random = np.random.default_rng(seed)
+            # MockFireSimulator's spread uses Python's global RNG, so seed it
+            # too. This makes whole episodes reproducible, which is essential
+            # for *paired* policy comparison (same fire, different controller).
+            random.seed(seed)
 
         self.sim = MockFireSimulator(
             grid_size=(self.grid, self.grid),
