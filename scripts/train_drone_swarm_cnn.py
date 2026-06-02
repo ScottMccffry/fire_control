@@ -247,6 +247,11 @@ def main():
         clip_range=0.2, policy_kwargs=policy_kwargs,
     )
 
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"cnn_{'bc_' if not args.skip_bc else ''}{args.difficulty}_g{grid}_d{cfg['n_drones']}"
+    model_path = out_dir / f"drone_swarm_{tag}"
+
     if not args.skip_bc:
         print(f"\n[3/7] Collecting greedy dataset ({args.bc_steps} transitions) ...")
         dataset = collect_greedy_dataset(cfg, args.bc_steps, args.seed)
@@ -261,13 +266,13 @@ def main():
             lambda e, o: model.predict(o, deterministic=True)[0])
         print(f"      cloned: {bc_burned:.0f} ({bc_burned/tot:.0%})  ext={bc_ext:.0%}  "
               f"saves {(rand_burned-bc_burned)/rand_burned:+.0%} vs random")
+        # Persist the behavior-cloned policy separately: it is often the best
+        # policy (PPO fine-tuning can mildly degrade it when greedy is already
+        # near-optimal under the current reward).
+        model.save(str(model_path) + "_bc")
+        print(f"      saved {model_path}_bc.zip")
     else:
         print("\n[3-5/7] Skipping behavior cloning (ablation: PPO from scratch)")
-
-    out_dir = Path(args.output)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    tag = f"cnn_{'bc_' if not args.skip_bc else ''}{args.difficulty}_g{grid}_d{cfg['n_drones']}"
-    model_path = out_dir / f"drone_swarm_{tag}"
 
     if not args.skip_ppo and args.timesteps > 0:
         if not args.skip_bc and args.value_warmup > 0:
