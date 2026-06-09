@@ -71,19 +71,20 @@ medium (32×32, 16 drones), 2M frames, paired over 20 fires:
 | greedy | 22% | 90% | +64% |
 | **per-drone** | **17%** | **100%** | **+72%** |
 
-**Zero-shot scale transfer** (same medium-trained weights, no fine-tuning, on
-large 100×100 / 40 drones):
+**Scale transfer** — large (100×100, 40 drones), paired over the same 12 fires:
 
 | controller | % grid burned | extinguish | vs random |
 |------------|---------------|------------|-----------|
-| random | 23% | 0% | — |
-| greedy | 8% | 38% | +66% |
-| **per-drone (transferred)** | **4%** | **88%** | **+83%** |
+| random | 25% | 0% | — |
+| greedy | 9% | 33% | +62% |
+| per-drone trained natively at 100×100 (2M frames) | 7% | 50% | +73% |
+| **per-drone trained at 32×32, zero-shot transfer** | **6%** | **58%** | **+74%** |
 
-The egocentric observation is grid-normalized, so the policy is effectively
-scale-free: trained at 32×32 with 16 drones, it halves greedy's burned area on
-a 10× larger grid with 2.5× more drones. This is the architecture to take
-toward WRF-SFIRE-scale swarms.
+The egocentric observation is grid-normalized and fixed-size, so the policy is
+effectively scale-free: weights trained at 32×32 with 16 drones match native
+large-scale training on a 10× larger grid with 2.5× more drones — train cheap
+at small scale, deploy at large scale. This is the architecture to take toward
+WRF-SFIRE-scale swarms.
 
 ## Key findings
 
@@ -104,10 +105,14 @@ toward WRF-SFIRE-scale swarms.
    100×100, making large-grid training and paired evaluation practical.
 5. **Decentralized beats centralized AND greedy.** A shared per-drone policy
    with per-drone rewards learns from scratch (no BC) what the centralized
-   models never could: +72% vs random on medium (greedy: +64%), and +83%
-   zero-shot on large (greedy: +66%). Per-drone credit assignment and a
-   fleet-relative observation (rank, centroid offset, neighbour spacing) are
-   what unlock both learning and coordination beyond greedy.
+   models never could: +72% vs random on medium (greedy: +64%) and +74% on
+   large (greedy: +62%). Per-drone credit assignment and a fleet-relative
+   observation (rank, centroid offset, neighbour spacing) are what unlock both
+   learning and coordination beyond greedy.
+6. **Zero-shot transfer matches native training at scale.** On 12 identical
+   100×100 fires, the 32×32-trained policy (632 burned) equals the natively
+   100×100-trained one (659) — scale-free observations mean you can train at
+   small scale and deploy at large scale for free.
 
 ## To actually beat greedy (recommended next steps)
 
