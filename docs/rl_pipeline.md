@@ -12,6 +12,8 @@ wildfire/drone simulator, the experiments run, and the conclusions.
 | `scripts/train_drone_swarm.py` | Flat-MLP PPO training (difficulty presets, VecNormalize, paired-ish eval). |
 | `scripts/train_drone_swarm_cnn.py` | CNN policy: collect greedy demos → behavior-clone → critic warmup → PPO fine-tune. Saves a `_bc` checkpoint (BC-only) and the final checkpoint. |
 | `scripts/evaluate_policy.py` | **Paired** evaluation: random/greedy/trained on *identical* seeded fires, with a significance check. |
+| `envs/per_drone_env.py` | **Decentralized per-drone env** (`PerDroneSwarmVecEnv`): each drone is one SB3 VecEnv stream with an egocentric observation; one shared policy, per-drone rewards. |
+| `scripts/train_per_drone.py` | Per-drone shared-policy PPO training + paired evaluation. |
 
 ## Difficulty presets (`DIFFICULTY_PRESETS`)
 
@@ -50,6 +52,39 @@ Greedy = hand-coded "each drone steps toward its nearest active fire cell".
 | greedy | ~7% | +73% |
 | **CNN + BC (cloned)** | **~11%** | **+58%** (scales; gap closes with more BC) |
 
+### Per-drone shared policy (decentralized) — BEATS GREEDY
+
+One small policy (43-dim egocentric obs → Discrete(5)), run independently by
+every drone. Observation: own position/water, nearest-fire bearing+distance,
+fire centroid + size, 5×5 local heat patch, 3 nearest-drone offsets,
+fleet-centroid offset, and fleet rank (fraction of drones closer to the fire).
+Per-drone rewards (own drops, on-fire, anti-clumping spacing penalty + shared
+fire terms). Trained with PPO from scratch — no behavior cloning needed —
+via `PerDroneSwarmVecEnv` (num_envs = n_drones, so each sim step yields
+n_drones samples).
+
+medium (32×32, 16 drones), 2M frames, paired over 20 fires:
+
+| controller | % grid burned | extinguish | vs random |
+|------------|---------------|------------|-----------|
+| random | 61% | 85% | — |
+| greedy | 22% | 90% | +64% |
+| **per-drone** | **17%** | **100%** | **+72%** |
+
+**Zero-shot scale transfer** (same medium-trained weights, no fine-tuning, on
+large 100×100 / 40 drones):
+
+| controller | % grid burned | extinguish | vs random |
+|------------|---------------|------------|-----------|
+| random | 23% | 0% | — |
+| greedy | 8% | 38% | +66% |
+| **per-drone (transferred)** | **4%** | **88%** | **+83%** |
+
+The egocentric observation is grid-normalized, so the policy is effectively
+scale-free: trained at 32×32 with 16 drones, it halves greedy's burned area on
+a 10× larger grid with 2.5× more drones. This is the architecture to take
+toward WRF-SFIRE-scale swarms.
+
 ## Key findings
 
 1. **A flat-MLP policy does not learn this task.** Flattening a large heat map
@@ -67,6 +102,12 @@ Greedy = hand-coded "each drone steps toward its nearest active fire cell".
    greedy, so greedy is ~optimal under this design — there is little headroom.
 4. **Vectorizing `MockFireSimulator.step`** (NumPy) gave ~5.7× speedup at
    100×100, making large-grid training and paired evaluation practical.
+5. **Decentralized beats centralized AND greedy.** A shared per-drone policy
+   with per-drone rewards learns from scratch (no BC) what the centralized
+   models never could: +72% vs random on medium (greedy: +64%), and +83%
+   zero-shot on large (greedy: +66%). Per-drone credit assignment and a
+   fleet-relative observation (rank, centroid offset, neighbour spacing) are
+   what unlock both learning and coordination beyond greedy.
 
 ## To actually beat greedy (recommended next steps)
 
