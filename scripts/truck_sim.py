@@ -198,12 +198,12 @@ def render(frames, grid, out, fps, b_final, d_final):
                   extent=[0, grid, 0, grid])
         if pos is not None:
             f = st == 0
-            ax.scatter(pos[f, 1], pos[f, 0], s=1.5, c="lime", alpha=0.5,
+            ax.scatter(pos[f, 1], pos[f, 0], s=7, c="lime", alpha=0.8,
                        label="fighting" if t == 0 else None)
-            ax.scatter(pos[~f, 1], pos[~f, 0], s=1.5, c="deepskyblue", alpha=0.5,
+            ax.scatter(pos[~f, 1], pos[~f, 0], s=7, c="deepskyblue", alpha=0.8,
                        label="refuel/return" if t == 0 else None)
-        ax.scatter(trucks[:, 1], trucks[:, 0], s=90, marker="s", c="cyan",
-                   edgecolors="black", linewidths=0.6, label="truck" if t == 0 else None)
+        ax.scatter(trucks[:, 1], trucks[:, 0], s=130, marker="s", c="cyan",
+                   edgecolors="black", linewidths=0.8, label="truck" if t == 0 else None)
         ax.set_title(f"Truck-based swarm vs irregular fire   tick {t*2}\n"
                      f"burned now {int((heat>0).sum())}  "
                      f"(no-swarm ends {b_final}, swarm ends {d_final})", fontsize=8)
