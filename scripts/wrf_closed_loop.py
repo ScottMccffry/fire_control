@@ -4,14 +4,19 @@ Closed-loop drone-swarm suppression coupled to a live WRF-SFIRE fire.
 
 WRF-SFIRE has no Python stepping API, so coupling is done by RESTART CYCLING:
 run WRF for one interval, stop, read the real fire, run the trained per-drone
-policy to position the swarm, then RAISE FUEL MOISTURE (FMC_G) above the
-moisture of extinction at the cells where drones drop water -- wet fuel WRF then
-refuses to burn -- write it back into the restart, and continue. The fire WRF
+policy to position the swarm, then ZERO THE RATE-OF-SPREAD coefficients (R_0,
+BBB, PHIWC, FGIP) at the cells where drones drop water -- a firebreak WRF then
+cannot spread through -- write it into the restart, and continue. The fire WRF
 computes next genuinely responds to the drones.
 
+NOTE on the lever: editing FMC_G (fuel moisture) or NFUEL_CAT (fuel category)
+in the restart has NO effect here -- this case uses constant fuel moisture and
+SFIRE computes spread from precomputed per-cell coefficients (R_0, ...) stored
+as restart state. Zeroing those is what actually stops spread (verified by A/B).
+
 Runs two arms with identical numerics and compares burned area:
-  * baseline : restart-cycled, no FMC_G edits (no swarm)
-  * drones   : restart-cycled, swarm raises FMC_G where it drops water
+  * baseline : restart-cycled, no edits (no swarm)
+  * drones   : restart-cycled, swarm zeroes spread coefficients where it drops
 
 Usage:
   python scripts/wrf_closed_loop.py --src /opt/wrf_cl \
@@ -31,9 +36,12 @@ import numpy as np
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-NO_FUEL_CAT = 14       # SFIRE "no fuel" category -> zero rate of spread
+# SFIRE precomputes per-cell spread coefficients from fuel and computes the rate
+# of spread from THESE (not from NFUEL_CAT/FMC_G each step), so the working
+# suppression lever is to zero them where drones drop water = a true firebreak.
+SUPPRESS_FIELDS = ("R_0", "BBB", "PHIWC", "FGIP")
 SUPPRESS_RADIUS = 2    # fire cells around each drop
-MICRO_STEPS = 20       # policy micro-steps per coupling interval
+MICRO_STEPS = 40       # policy micro-steps per coupling interval
 ACTIVE_W = 300.0       # W/m^2 FGRNHFX threshold for "active fire"
 
 
@@ -74,15 +82,17 @@ def suppress_in_restart(rst_path: Path, controller, micro: int):
     import netCDF4 as nc
     with nc.Dataset(rst_path, "r+") as ds:
         heat = ds.variables["FGRNHFX"][0].astype(float)   # (sn_sub, we_sub)
-        nfuel = ds.variables["NFUEL_CAT"][0].astype(float)
         cells = controller.step(heat, micro)              # list of (r,c) drop cells
         R = SUPPRESS_RADIUS
-        H, W = nfuel.shape
+        H, W = heat.shape
+        arrs = {v: ds.variables[v][0] for v in SUPPRESS_FIELDS if v in ds.variables}
         for r, c in cells:
             r0, r1 = max(0, r - R), min(H, r + R + 1)
             c0, c1 = max(0, c - R), min(W, c + R + 1)
-            nfuel[r0:r1, c0:c1] = NO_FUEL_CAT     # firebreak: no fuel -> no spread
-        ds.variables["NFUEL_CAT"][0] = nfuel
+            for a in arrs.values():
+                a[r0:r1, c0:c1] = 0.0          # zero rate-of-spread -> firebreak
+        for v, a in arrs.items():
+            ds.variables[v][0] = a
         return len(cells), int((heat > ACTIVE_W).sum())
 
 
