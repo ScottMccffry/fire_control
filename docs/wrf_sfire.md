@@ -89,3 +89,26 @@ Replay is one-way: drones reading these frames cannot change a precomputed fire.
 True closed-loop suppression (drone water drops altering WRF-SFIRE spread)
 requires running WRF-SFIRE live with fuel/moisture modification fed back each
 coupling step — out of scope here, but the `FireState` bridge is the first step.
+
+## Closed-loop coupling result
+
+`scripts/wrf_closed_loop.py` couples the trained per-drone swarm to a LIVE
+WRF-SFIRE fire via restart cycling: each 60 s interval it reads the real fire
+from the restart, runs the policy to position 60 drones, and zeroes the SFIRE
+rate-of-spread coefficients (R_0, BBB, PHIWC, FGIP) where they drop water -- a
+firebreak WRF then cannot spread through. Two arms, identical numerics:
+
+| arm | final burned fire cells |
+|-----|------------------------|
+| baseline (no swarm) | 417 |
+| **drones (swarm)** | **366**  (−12%) |
+
+Per-cycle active fire cells with the swarm: 164 → 156 → 127 → 102 → 75 (drops
+2 → 10 → 12 → 13 → 20) -- the swarm progressively contains the fire, and WRF's
+next interval genuinely spreads less because the drones modified the fuel.
+
+### Finding the lever (three A/B tests against the live model)
+- FMC_G (fuel moisture): NO effect -- constant-moisture config, field diagnostic-only.
+- NFUEL_CAT (fuel category): NO effect -- regenerated from namelist each restart.
+- R_0 + spread coefficients: WORKS -- SFIRE precomputes per-cell spread from these
+  and stores them as restart state; zeroing them halts spread (verified A/B).
