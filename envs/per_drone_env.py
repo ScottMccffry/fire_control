@@ -22,6 +22,7 @@ from typing import List, Optional
 
 import numpy as np
 from scipy import ndimage
+from scipy.spatial import cKDTree
 from gymnasium import spaces
 from stable_baselines3.common.vec_env import VecEnv
 
@@ -164,16 +165,20 @@ class PerDroneSwarmVecEnv(VecEnv):
         obs[:, 10] = np.clip((self.drone_pos[:, 0].mean() - r) / g, -1, 1)
         obs[:, 11] = np.clip((self.drone_pos[:, 1].mean() - c) / g, -1, 1)
 
-        # K nearest neighbour drone offsets.
-        diff = self.drone_pos[:, None, :] - self.drone_pos[None, :, :]
-        dd = np.abs(diff).sum(axis=2).astype(float)
-        np.fill_diagonal(dd, np.inf)
-        nn = np.argsort(dd, axis=1)[:, :_KNN]
+        # K nearest neighbour drone offsets (KD-tree: O(n log n), exact Manhattan
+        # query, p=1 -- identical neighbours to the old O(n^2) argsort but scales
+        # to thousands of drones).
+        kq = min(_KNN + 1, self.n_drones)
+        tree = cKDTree(self.drone_pos)
+        nn_d, nn_i = tree.query(self.drone_pos, k=kq, p=1)
+        if nn_i.ndim == 1:           # n_drones == 1 edge case
+            nn_i = nn_i[:, None]; nn_d = nn_d[:, None]
+        nn = nn_i[:, 1:]             # drop self (nearest, distance 0)
         for k in range(_KNN):
-            j = nn[:, k]
+            j = nn[:, k] if k < nn.shape[1] else np.arange(self.n_drones)
             obs[:, 12 + 2 * k] = np.clip((self.drone_pos[j, 0] - r) / g, -1, 1)
             obs[:, 13 + 2 * k] = np.clip((self.drone_pos[j, 1] - c) / g, -1, 1)
-        self._nn_dist = dd[np.arange(self.n_drones), nn[:, 0]]
+        self._nn_dist = nn_d[:, 1] if nn_d.shape[1] > 1 else np.full(self.n_drones, g)
 
         # Local heat patch.
         pad = _PATCH // 2
