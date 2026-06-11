@@ -31,7 +31,7 @@ import numpy as np
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-SUPPRESS_FMC = 0.6     # fuel moisture to write at suppressed cells (>> extinction)
+NO_FUEL_CAT = 14       # SFIRE "no fuel" category -> zero rate of spread
 SUPPRESS_RADIUS = 2    # fire cells around each drop
 MICRO_STEPS = 20       # policy micro-steps per coupling interval
 ACTIVE_W = 300.0       # W/m^2 FGRNHFX threshold for "active fire"
@@ -74,15 +74,15 @@ def suppress_in_restart(rst_path: Path, controller, micro: int):
     import netCDF4 as nc
     with nc.Dataset(rst_path, "r+") as ds:
         heat = ds.variables["FGRNHFX"][0].astype(float)   # (sn_sub, we_sub)
-        fmc = ds.variables["FMC_G"][0].astype(float)
+        nfuel = ds.variables["NFUEL_CAT"][0].astype(float)
         cells = controller.step(heat, micro)              # list of (r,c) drop cells
         R = SUPPRESS_RADIUS
-        H, W = fmc.shape
+        H, W = nfuel.shape
         for r, c in cells:
             r0, r1 = max(0, r - R), min(H, r + R + 1)
             c0, c1 = max(0, c - R), min(W, c + R + 1)
-            fmc[r0:r1, c0:c1] = SUPPRESS_FMC
-        ds.variables["FMC_G"][0] = fmc
+            nfuel[r0:r1, c0:c1] = NO_FUEL_CAT     # firebreak: no fuel -> no spread
+        ds.variables["NFUEL_CAT"][0] = nfuel
         return len(cells), int((heat > ACTIVE_W).sum())
 
 
