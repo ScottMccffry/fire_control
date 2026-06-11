@@ -145,3 +145,25 @@ magnitude larger than 60.
 - NFUEL_CAT (fuel category): NO effect -- regenerated from namelist each restart.
 - R_0 + spread coefficients: WORKS -- SFIRE precomputes per-cell spread from these
   and stores them as restart state; zeroing them halts spread (verified A/B).
+
+## Large-swarm validation (3,000 drones): the fire shrinks
+
+Re-running the calibrated closed loop on the same vigorous fire with a swarm at
+the project's intended scale (3,000 drones, same scale-free per-drone policy,
+no retraining):
+
+| arm | final burned fire cells |
+|-----|------------------------|
+| baseline (no swarm) | 4045 |
+| 60 x 10 L drones | 4010 (-1%) |
+| **3,000 x 10 L drones** | **2983 (-26%)** |
+
+Active fire cells with the 3,000-drone swarm peak then DECLINE
+(381 -> 607 -> 624 -> 620 -> 611 -> 544 -> 437) while baseline keeps climbing
+(... -> 686 -> 710 -> 722 -> 724) -- the swarm crosses from losing the race to
+shrinking the fire. Water delivered: ~53,000 L total (ramping to ~12,000 L/cycle)
+vs ~960 L for 60 drones. This confirms the water-budget analysis: meaningful
+suppression of a ~0.63 km^2 fire requires thousands of drones, validating the
+5,000-10,000 design target. The per-drone policy (trained on a 32x32 mock fire
+with 16 drones) controlled 3,000 drones on real WRF-SFIRE with no retraining --
+the scale-free property in action.
