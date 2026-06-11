@@ -285,3 +285,66 @@ class PerDroneSwarmVecEnv(VecEnv):
     def env_is_wrapped(self, wrapper_class, indices=None):
         n = self.n_drones if indices is None else len(self._get_indices(indices))
         return [False] * n
+
+
+class _StaticFire:
+    """Minimal fire surface holding one fixed heat field (for WRF coupling)."""
+    def __init__(self, heat, max_heat, ignition_threshold):
+        self.heat_intensity = heat
+        self.max_heat_intensity = float(max_heat)
+        self.ignition_threshold = ignition_threshold
+        self.burned_area = np.zeros_like(heat, dtype=int)
+
+    def apply_water_drop(self, r, c, amount=5.0):
+        pass
+
+
+class WRFGridDroneEnv(PerDroneSwarmVecEnv):
+    """Run the trained per-drone policy on a *fixed* WRF-SFIRE heat grid.
+
+    Used by the closed-loop coupler: each coupling interval, the current WRF
+    fire is loaded with ``set_fire``, the swarm is advanced for several
+    micro-steps, and ``drops_on_fire`` reports the fire cells the drones
+    suppressed (drone on an active cell with water). Reuses the parent's exact
+    ``_build_obs`` so the policy sees training-identical observations.
+    """
+    def __init__(self, grid, n_drones, max_heat,
+                 ignition_threshold=1000.0):
+        super().__init__(grid_size=grid, n_drones=n_drones, max_steps=10 ** 9)
+        self._max_heat = float(max_heat)
+        self._ign = ignition_threshold
+        self._drops = set()
+
+    def set_fire(self, heat):
+        self.sim = _StaticFire(np.asarray(heat, dtype=float), self._max_heat,
+                               self._ign)
+
+    def reset_keep(self, pos=None):
+        if pos is None:
+            per_row = int(np.ceil(np.sqrt(self.n_drones)))
+            for i in range(self.n_drones):
+                gr, gc = divmod(i, per_row)
+                self.drone_pos[i] = (int((gr + 0.5) * self.grid / per_row),
+                                     int((gc + 0.5) * self.grid / per_row))
+            self.drone_pos = np.clip(self.drone_pos, 0, self.grid - 1)
+        else:
+            self.drone_pos = np.clip(np.asarray(pos), 0, self.grid - 1)
+        self.drone_water[:] = self.water_capacity
+        self._drops = set()
+        return self._build_obs()
+
+    def advance(self, actions):
+        self.drone_pos = np.clip(self.drone_pos + _MOVES[np.asarray(actions)],
+                                 0, self.grid - 1)
+        thr = self.sim.ignition_threshold * 0.3
+        for i in range(self.n_drones):
+            r, c = int(self.drone_pos[i, 0]), int(self.drone_pos[i, 1])
+            if self.sim.heat_intensity[r, c] > thr and self.drone_water[i] >= 5.0:
+                self.drone_water[i] -= 5.0
+                self._drops.add((r, c))
+            self.drone_water[i] = min(self.water_capacity,
+                                      self.drone_water[i] + self.water_regen)
+        return self._build_obs()
+
+    def drops_on_fire(self):
+        return list(self._drops)
