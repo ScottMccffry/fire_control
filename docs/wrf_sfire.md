@@ -83,12 +83,13 @@ python scripts/evaluate_on_wrf.py --wrfout-dir /opt/wrf_fine \
     --coarsen 4 --drones 40
 ```
 
-## Closed-loop suppression caveat
+## From replay (open-loop) to closed-loop
 
-Replay is one-way: drones reading these frames cannot change a precomputed fire.
-True closed-loop suppression (drone water drops altering WRF-SFIRE spread)
-requires running WRF-SFIRE live with fuel/moisture modification fed back each
-coupling step — out of scope here, but the `FireState` bridge is the first step.
+The evaluation above is replay (one-way): drones reading those frames cannot
+change a precomputed fire, so it measures coverage, not suppression. True
+closed-loop suppression — drone actions altering WRF-SFIRE spread — is achieved
+separately via restart cycling (see the next section), where the fuel field is
+modified between intervals and fed back into the model.
 
 ## Closed-loop coupling result
 
