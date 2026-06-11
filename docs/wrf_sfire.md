@@ -167,3 +167,26 @@ suppression of a ~0.63 km^2 fire requires thousands of drones, validating the
 5,000-10,000 design target. The per-drone policy (trained on a 32x32 mock fire
 with 16 drones) controlled 3,000 drones on real WRF-SFIRE with no retraining --
 the scale-free property in action.
+
+## Realistic kinematics + refuelling: greedy vs policy (3,000 drones)
+
+3-way comparison, identical realistic dynamics (continuous 15 m/s flight, true
+heading vectors, 5 L/s drop, fly-to-nearest-lake refuel over 30 s; KD-tree
+neighbours). Single run per arm (treat exact % as noisy):
+
+| arm | final burned cells | vs baseline | total water | water / cell saved |
+|-----|-------------------:|:-----------:|------------:|-------------------:|
+| baseline | 4045 | -- | -- | -- |
+| greedy | 2474 | -39% | ~95,900 L | 61 L/cell |
+| policy | 2814 | -30% | ~61,400 L | **50 L/cell** |
+
+Greedy wins on raw burned area but by brute force (+56% more water). The policy
+is ~18% more water-EFFICIENT per cell saved -- its spacing avoids double-soaking
+cells -- but loses on absolute containment because its **cardinal-only action
+space** gets fewer drones onto the front, so it delivers less total water.
+
+Implication: retraining the policy with a **continuous (vector) action space**
+should let it deliver water as fast as greedy while keeping its efficiency edge
+-> beat greedy on both metrics. The larger efficiency win (suppress ahead of the
+front) additionally needs wind/spread-direction observations and a per-litre
+reward term so water efficiency is an explicit objective.
