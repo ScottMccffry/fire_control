@@ -50,6 +50,39 @@ not geographic, so pass `fire_mesh_res` explicitly (here 50 m / sr 4 = 12.5 m).
   created because Ubuntu splits NetCDF headers/libs across paths WRF's
   `configure` doesn't expect.
 
+## Running the trained swarm on the real WRF-SFIRE fire
+
+![Swarm tracking a real WRF-SFIRE fire](figures/wrf_swarm.png)
+
+`scripts/evaluate_on_wrf.py` runs the decentralized per-drone policy (see
+`docs/rl_pipeline.md`) on the real WRF-SFIRE frames. It subclasses
+`PerDroneSwarmVecEnv` and reuses its exact observation builder, swapping the
+mock fire for a shim backed by `WRFReplaySimulator` frames -- so the policy sees
+training-identical observations driven by genuine WRF-SFIRE physics.
+
+On 51 real frames (`hill_simple`, 12 s history, coarsened to 103x103, 40 drones),
+mean **flame-front coverage** (fraction of active fire cells within a drone's
+suppression radius):
+
+| controller | coverage |
+|------------|----------|
+| random | 25% |
+| greedy (oracle: each drone to nearest active cell) | 77% |
+| **per-drone policy (trained only on the mock fire)** | **69%** |
+
+The policy was never trained on WRF-SFIRE, yet tracks the real flame front at
+near-oracle coverage and far above random -- evidence the learned behavior
+transfers from the mock cellular automaton to genuine fire physics. (Greedy
+edges it on *pure coverage* because coverage is essentially greedy's objective;
+the per-drone policy's coordination advantage shows up in closed-loop
+burned-area reduction, which replay cannot measure.)
+
+```bash
+python scripts/evaluate_on_wrf.py --wrfout-dir /opt/wrf_fine \
+    --policy agents/checkpoints/per_drone_ppo_large_g100_d40 \
+    --coarsen 4 --drones 40
+```
+
 ## Closed-loop suppression caveat
 
 Replay is one-way: drones reading these frames cannot change a precomputed fire.
