@@ -50,8 +50,14 @@ class PerDroneSwarmVecEnv(VecEnv):
         water_capacity: float = 10.0,
         water_regen_per_step: float = 1.5,
         drop_amount: float = 5.0,
+        continuous: bool = False,
+        max_move: float = 1.5,
+        water_cost: float = 0.0,
         episode_seed: Optional[int] = None,
     ):
+        self.continuous = bool(continuous)
+        self.max_move = float(max_move)
+        self.water_cost = float(water_cost)
         self.grid = int(grid_size)
         self.n_drones = int(n_drones)
         self.max_steps = int(max_steps)
@@ -72,10 +78,15 @@ class PerDroneSwarmVecEnv(VecEnv):
         # + fleet centroid dx,dy (2) + rank (1)
         # + KNN drone offsets (2*_KNN) + local heat patch (_PATCH^2)
         obs_dim = 2 + 1 + 3 + 3 + 2 + 1 + 2 * _KNN + _PATCH * _PATCH
+        # Discrete: 5 cardinal moves. Continuous: a 2D velocity vector per drone
+        # (dx, dy in [-1, 1]) integrated at up to `max_move` cells/step -- this is
+        # the "vector movement" variant (lets a drone head in any direction).
+        act = (spaces.Box(-1.0, 1.0, (2,), np.float32) if self.continuous
+               else spaces.Discrete(len(_MOVES)))
         super().__init__(
             num_envs=self.n_drones,
             observation_space=spaces.Box(-1.0, 1.0, (obs_dim,), np.float32),
-            action_space=spaces.Discrete(len(_MOVES)),
+            action_space=act,
         )
         self.render_mode = None
 
@@ -121,6 +132,7 @@ class PerDroneSwarmVecEnv(VecEnv):
             self.drone_pos[i] = (int((gr + 0.5) * self.grid / per_row),
                                  int((gc + 0.5) * self.grid / per_row))
         self.drone_pos = np.clip(self.drone_pos, 0, self.grid - 1)
+        self.drone_posf = self.drone_pos.astype(float)   # continuous positions
         self.drone_water[:] = self.water_capacity
         self.steps = 0
         self._prev_burned = int(self.sim.burned_area.sum())
@@ -190,7 +202,14 @@ class PerDroneSwarmVecEnv(VecEnv):
         return obs
 
     def greedy_actions(self) -> np.ndarray:
-        """Each drone steps toward its nearest active fire cell."""
+        """Each drone heads toward its nearest active fire cell.
+
+        Continuous mode -> true unit vector (dx, dy); discrete -> cardinal id.
+        """
+        if self.continuous:
+            v = np.stack([self._fire_dr, self._fire_dc], axis=1).astype(np.float32)
+            n = np.linalg.norm(v, axis=1, keepdims=True)
+            return np.where(n > 0, v / n, 0.0).astype(np.float32)
         acts = np.zeros(self.n_drones, dtype=np.int64)
         for i in range(self.n_drones):
             if self._fire_dist[i] >= 1.0 or (self._fire_dr[i] == 0 and self._fire_dc[i] == 0):
@@ -207,11 +226,19 @@ class PerDroneSwarmVecEnv(VecEnv):
         return self._build_obs()
 
     def step_async(self, actions):
-        self._actions = np.asarray(actions, dtype=np.int64).reshape(self.n_drones)
+        if self.continuous:
+            self._actions = np.asarray(actions, dtype=np.float32).reshape(self.n_drones, 2)
+        else:
+            self._actions = np.asarray(actions, dtype=np.int64).reshape(self.n_drones)
 
     def step_wait(self):
-        self.drone_pos = np.clip(self.drone_pos + _MOVES[self._actions],
-                                 0, self.grid - 1)
+        if self.continuous:
+            vec = np.clip(self._actions, -1.0, 1.0) * self.max_move
+            self.drone_posf = np.clip(self.drone_posf + vec, 0, self.grid - 1)
+            self.drone_pos = np.round(self.drone_posf).astype(np.int64)
+        else:
+            self.drone_pos = np.clip(self.drone_pos + _MOVES[self._actions],
+                                     0, self.grid - 1)
 
         thr = self.sim.ignition_threshold * 0.3
         dropped = np.zeros(self.n_drones, dtype=np.float32)
@@ -238,10 +265,12 @@ class PerDroneSwarmVecEnv(VecEnv):
         obs = self._build_obs()  # also refreshes fire dist / nn dist caches
 
         # Per-drone reward: shared fire terms + own contribution + spacing.
+        # water_cost (>0) charges each drop, making water an explicit cost so the
+        # policy learns to be frugal (the "volume reward" variant).
         rewards = (
             -1.0 * new_burned / self.n_drones
             - 0.01 * active_cells / self.n_drones
-            + 1.0 * dropped
+            + (1.0 - self.water_cost) * dropped
             + 0.3 * on_fire
             + 0.1 * np.exp(-5.0 * self._fire_dist)
             - 0.1 * (self._nn_dist <= 1.0)

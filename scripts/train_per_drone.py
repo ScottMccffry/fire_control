@@ -43,7 +43,8 @@ def rollout(kind, kwargs, seed, model=None):
     obs = env.reset()
     while True:
         if kind == "random":
-            actions = np.random.randint(0, 5, env.n_drones)
+            actions = (np.random.uniform(-1, 1, (env.n_drones, 2)).astype(np.float32)
+                       if env.continuous else np.random.randint(0, 5, env.n_drones))
         elif kind == "greedy":
             actions = env.greedy_actions()
         else:
@@ -75,6 +76,10 @@ def main():
                    help="Total per-drone frames (sim steps x n_drones)")
     p.add_argument("--eval-episodes", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--continuous", action="store_true", help="vector (Box) movement")
+    p.add_argument("--water-cost", type=float, default=0.0,
+                   help="per-drop reward penalty (volume-efficiency variant)")
+    p.add_argument("--tag", default="", help="checkpoint name suffix")
     p.add_argument("--output", default="./agents/checkpoints")
     args = p.parse_args()
 
@@ -82,11 +87,14 @@ def main():
     from stable_baselines3 import PPO
 
     kwargs = env_kwargs(args.difficulty)
+    kwargs["continuous"] = args.continuous
+    kwargs["water_cost"] = args.water_cost
     print("=" * 66)
     print("Per-Drone Shared-Policy PPO (decentralized)")
     print("=" * 66)
     print(f"difficulty={args.difficulty}  grid={kwargs['grid_size']}  "
           f"drones={kwargs['n_drones']}  frames={args.timesteps}")
+    print(f"continuous={args.continuous}  water_cost={args.water_cost}")
 
     print("\n[1/4] Baselines on identical fires ...")
     base, tot = paired_eval(("random", "greedy"), kwargs,
@@ -107,7 +115,8 @@ def main():
 
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"per_drone_ppo_{args.difficulty}_g{kwargs['grid_size']}_d{kwargs['n_drones']}"
+    suffix = f"_{args.tag}" if args.tag else ""
+    path = out / f"per_drone_ppo_{args.difficulty}_g{kwargs['grid_size']}_d{kwargs['n_drones']}{suffix}"
     model.save(str(path))
     print(f"      saved {path}.zip")
 
