@@ -56,6 +56,7 @@ def main():
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
     from stable_baselines3 import PPO
+    from stable_baselines3.common.callbacks import CheckpointCallback
 
     kw = dict(grid_size=args.grid, n_trucks=args.trucks, drones_per_truck=args.dpt,
               max_steps=args.max_steps, water_cost=args.water_cost,
@@ -74,7 +75,9 @@ def main():
     model = PPO("MlpPolicy", env, seed=args.seed, verbose=1, n_steps=256,
                 batch_size=512, n_epochs=8, gamma=0.99, gae_lambda=0.95,
                 ent_coef=0.01, learning_rate=3e-4, policy_kwargs=dict(net_arch=[128, 128]))
-    model.learn(total_timesteps=args.timesteps, progress_bar=False)
+    ckpt = CheckpointCallback(save_freq=20000, save_path=str(Path(args.output) / "ckpt"),
+                              name_prefix=f"dispatch_{args.tag or 'run'}")
+    model.learn(total_timesteps=args.timesteps, progress_bar=False, callback=ckpt)
     out = Path(args.output); out.mkdir(parents=True, exist_ok=True)
     suf = f"_{args.tag}" if args.tag else ""
     path = out / f"truck_dispatch_g{args.grid}_t{args.trucks}_d{args.dpt}{suf}"
