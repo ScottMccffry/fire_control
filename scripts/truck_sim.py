@@ -98,7 +98,7 @@ def place_trucks(grid, n, fire_xy, seed):
     return np.array(trucks)
 
 
-def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True):
+def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0):
     sim, _ = make_irregular_fire(grid, 500.0, seed)
     fire_xy = active_cells(sim)
     trucks = place_trucks(grid, n_trucks, fire_xy, seed)
@@ -107,8 +107,8 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True):
     rng = np.random.default_rng(seed + 2)
 
     if use_drones:
-        pos = np.repeat(trucks, dpt, axis=0).astype(float)
-        pos += rng.uniform(-2, 2, pos.shape)
+        home_truck = np.repeat(np.arange(n_trucks), dpt)[:N]
+        pos = trucks[home_truck].astype(float) + rng.uniform(-2, 2, (N, 2))
         water = np.full(N, TANK)
         mode = np.zeros(N, dtype=int)               # 0 fight, 1 return/refuel
         reserve = np.full(n_trucks, TRUCK_RESERVE)
@@ -129,6 +129,16 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True):
                     trucks[k] = np.clip(trucks[k] + away * (retreat * 1.5), 0, grid - 1)
         if use_drones:
             reserve = np.minimum(TRUCK_RESERVE, reserve + TRUCK_DISPENSE_LPM)  # supply line tops up
+
+        # Response delay: before deployment, drones wait at their (possibly
+        # retreating) trucks while the fire grows -- a realistic mobilization lag.
+        if use_drones and t < deploy_delay:
+            pos = trucks[home_truck] + rng.uniform(-2, 2, (N, 2))
+            if record and t % 2 == 0:
+                frames.append((sim.heat_intensity.copy(), pos.copy(),
+                               np.ones(N, dtype=int), trucks.copy(), reserve.copy()))
+            sim.step(); burned_curve.append(int(sim.burned_area.sum()))
+            continue
 
         if use_drones:
             for _ in range(SUBSTEPS):
@@ -223,6 +233,7 @@ def main():
     p.add_argument("--ticks", type=int, default=400)
     p.add_argument("--seed", type=int, default=3)
     p.add_argument("--out", default="docs/figures/truck_sim.mp4")
+    p.add_argument("--deploy-delay", type=int, default=0, help="ticks before drones launch (mobilization lag)")
     p.add_argument("--fps", type=int, default=20)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
@@ -236,7 +247,8 @@ def main():
     print(f"swarm ({args.trucks} trucks x {args.drones_per_truck} drones) ...")
     d_final, d_curve, frames, water, ntr = run(args.grid, args.trucks,
                                                args.drones_per_truck, args.ticks,
-                                               args.seed, record=True)
+                                               args.seed, record=True,
+                                               deploy_delay=args.deploy_delay)
     print(f"  trucks placed: {ntr}")
     print(f"  swarm burned:    {d_final} ({d_final/tot:.0%})")
     print(f"  reduction: {b_final - d_final} cells ({(b_final-d_final)/b_final:+.0%})")
