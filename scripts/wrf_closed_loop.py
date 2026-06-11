@@ -202,6 +202,8 @@ class RealisticController:
         self.water = np.full(n_drones, self.TANK)
         self.mode = np.zeros(n_drones, dtype=int)               # 0 fight, 1 refuel
         self.lake_target = np.zeros((n_drones, 2))
+        self.record = False                                     # log per-micro-step
+        self.frames = []                                        # (pos, mode) snapshots
 
     def _init_pos(self):
         per_row = int(np.ceil(np.sqrt(self.n)))
@@ -260,6 +262,9 @@ class RealisticController:
                 for k, i in enumerate(np.where(can)[0]):
                     cell = (int(ipos[i, 0]), int(ipos[i, 1]))
                     drops[cell] = drops.get(cell, 0.0) + float(deliver[k])
+            if self.record:
+                self.frames.append((self.pos.copy().astype("float32"),
+                                    self.mode.copy().astype("int8")))
         return drops
 
 
