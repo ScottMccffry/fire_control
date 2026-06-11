@@ -108,6 +108,38 @@ Per-cycle active fire cells with the swarm: 164 → 156 → 127 → 102 → 75 (
 2 → 10 → 12 → 13 → 20) -- the swarm progressively contains the fire, and WRF's
 next interval genuinely spreads less because the drones modified the fuel.
 
+**Caveat: this −12% is optimistic.** It uses two idealizations: (1) a *perfect
+firebreak* (drones zero the rate of spread wherever they sit, with unlimited
+water), and (2) a *small, slow* fire (~400 cells). See the calibrated result
+below for the honest version.
+
+## Calibrated, water-limited suppression on a vigorous fire
+
+`scripts/wrf_closed_loop.py` with the graded model (`SwarmController`,
+`suppress_in_restart`): drones carry a finite 10 L tank that refills slowly, and
+a drop reduces the local rate of spread by `exp(-w/W_E)` (w = L/m² over the drop
+footprint) -- *not* a perfect firebreak. Run on a more vigorous fire (10 m/s
+wind, earlier/longer ignition; baseline burns ~10× more than `hill_simple`):
+
+| arm | final burned fire cells |
+|-----|------------------------|
+| baseline (no swarm) | 4045 |
+| drones (60 × 10 L swarm) | 4010 (−1%, within noise) |
+
+Active fire cells with the swarm *grew* every cycle (381 → 628 → 658 → 686 →
+710 → 722 → 724): 60 drones cannot keep pace with a wind-driven fire.
+
+**Why — water budget.** Drones delivered ~960 L total. The fire covered
+~4045 × 156 m² ≈ 0.63 km²; wetting even the active front (~0.11 km²) takes
+~10,000+ L *sustained*. So ~960 L ≈ 1 % of what's needed → ~1 % effect. Meaningful
+containment of a fire this size needs ~50–100× more water, i.e. **thousands of
+drones** — which is precisely why the project targets 5,000–10,000, not dozens.
+
+**Takeaway:** the closed-loop coupling is real and works (verified A/B that the
+swarm changes the live WRF-SFIRE fire); the *magnitude* of effect is governed by
+total water delivered, so a credible suppression demo requires a swarm orders of
+magnitude larger than 60.
+
 ### Finding the lever (three A/B tests against the live model)
 - FMC_G (fuel moisture): NO effect -- constant-moisture config, field diagnostic-only.
 - NFUEL_CAT (fuel category): NO effect -- regenerated from namelist each restart.
