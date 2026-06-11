@@ -333,6 +333,12 @@ class WRFGridDroneEnv(PerDroneSwarmVecEnv):
         self._drops = set()
         return self._build_obs()
 
+    def move(self, actions):
+        """Move drones one step (no water logic); return fresh observations."""
+        self.drone_pos = np.clip(self.drone_pos + _MOVES[np.asarray(actions)],
+                                 0, self.grid - 1)
+        return self._build_obs()
+
     def advance(self, actions):
         self.drone_pos = np.clip(self.drone_pos + _MOVES[np.asarray(actions)],
                                  0, self.grid - 1)

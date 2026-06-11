@@ -36,13 +36,22 @@ import numpy as np
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# SFIRE precomputes per-cell spread coefficients from fuel and computes the rate
-# of spread from THESE (not from NFUEL_CAT/FMC_G each step), so the working
-# suppression lever is to zero them where drones drop water = a true firebreak.
-SUPPRESS_FIELDS = ("R_0", "BBB", "PHIWC", "FGIP")
-SUPPRESS_RADIUS = 2    # fire cells around each drop
-MICRO_STEPS = 40       # policy micro-steps per coupling interval
-ACTIVE_W = 300.0       # W/m^2 FGRNHFX threshold for "active fire"
+# SFIRE computes the rate of spread from precomputed per-cell coefficients
+# (R_0 = base ROS, FGIP = fuel load/heat) stored as restart state -- not from
+# NFUEL_CAT/FMC_G each step (verified by A/B). So suppression scales R_0/FGIP.
+#
+# Calibrated (graded, water-limited) model instead of a perfect firebreak:
+# a drop delivers the drone's water over a small footprint; the local water
+# loading w [L/m^2] reduces the rate of spread by exp(-w / W_E). Suppression
+# ACCUMULATES across cycles (water persists), and drones have a finite tank that
+# refills slowly -- so a single 10 L drop only dents ROS; sustained, coordinated
+# drops are needed to contain the front.
+SUPPRESS_FIELDS = ("R_0", "FGIP")   # base rate-of-spread and fuel load/heat
+SUPPRESS_RADIUS = 1                  # drop footprint: 3x3 fire cells (~37 m)
+CELL_AREA_M2 = 12.5 ** 2            # fire-mesh cell (dx/sr = 50/4 = 12.5 m)
+W_E = 0.05                           # L/m^2 e-folding suppression effectiveness
+MICRO_STEPS = 40                    # policy micro-steps per coupling interval
+ACTIVE_W = 300.0                    # W/m^2 FGRNHFX threshold for "active fire"
 
 
 def set_times(namelist: Path, start_s: int, end_s: int, restart: bool, interval: int):
@@ -78,22 +87,27 @@ def run_wrf(run_dir: Path, log: Path) -> bool:
 
 
 def suppress_in_restart(rst_path: Path, controller, micro: int):
-    """Read fire from restart, advance the swarm, write FMC_G suppression."""
+    """Read fire from restart, advance the swarm, apply graded water suppression."""
     import netCDF4 as nc
     with nc.Dataset(rst_path, "r+") as ds:
         heat = ds.variables["FGRNHFX"][0].astype(float)   # (sn_sub, we_sub)
-        cells = controller.step(heat, micro)              # list of (r,c) drop cells
+        drops = controller.step(heat, micro)              # {(r,c): liters delivered}
         R = SUPPRESS_RADIUS
         H, W = heat.shape
         arrs = {v: ds.variables[v][0] for v in SUPPRESS_FIELDS if v in ds.variables}
-        for r, c in cells:
+        footprint = (2 * R + 1) ** 2 * CELL_AREA_M2
+        total_l = 0.0
+        for (r, c), liters in drops.items():
+            total_l += liters
+            w = liters / footprint                    # L/m^2 over the drop footprint
+            mult = float(np.exp(-w / W_E))            # graded ROS/heat reduction
             r0, r1 = max(0, r - R), min(H, r + R + 1)
             c0, c1 = max(0, c - R), min(W, c + R + 1)
             for a in arrs.values():
-                a[r0:r1, c0:c1] = 0.0          # zero rate-of-spread -> firebreak
+                a[r0:r1, c0:c1] *= mult              # accumulates across cycles
         for v, a in arrs.items():
             ds.variables[v][0] = a
-        return len(cells), int((heat > ACTIVE_W).sum())
+        return len(drops), int((heat > ACTIVE_W).sum()), total_l
 
 
 def burned_cells(rst_path: Path) -> int:
@@ -103,23 +117,42 @@ def burned_cells(rst_path: Path) -> int:
 
 
 class SwarmController:
-    """Drives the trained per-drone policy on the WRF fire grid."""
+    """Drives the trained per-drone policy on the WRF fire grid.
+
+    Maintains a finite per-drone water budget across coupling cycles: a drone on
+    an active cell with enough water drops its full tank (then refills slowly),
+    so suppression is water-limited, not unlimited.
+    """
+    TANK = 10.0       # litres per drone
+    DROP_MIN = 5.0    # only drop if at least this much water
+    REFILL = 4.0      # litres regained per coupling cycle (slow resupply)
+
     def __init__(self, policy_path, n_drones, grid, max_heat):
         from stable_baselines3 import PPO
         from envs.per_drone_env import WRFGridDroneEnv
         self.model = PPO.load(policy_path)
         self.env = WRFGridDroneEnv(grid, n_drones, max_heat)
         self.pos = None
+        self.water = np.full(n_drones, self.TANK)
 
     def step(self, heat, micro):
         env = self.env
         env.set_fire(heat)
         obs = env.reset_keep(self.pos)
-        for _ in range(micro):
+        for _ in range(micro):        # position the swarm (no water logic)
             a, _ = self.model.predict(obs, deterministic=True)
-            obs = env.advance(a)
+            obs = env.move(a)
         self.pos = env.drone_pos.copy()
-        return env.drops_on_fire()
+
+        thr = env.sim.ignition_threshold * 0.3
+        drops = {}
+        for i in range(env.n_drones):
+            r, c = int(self.pos[i, 0]), int(self.pos[i, 1])
+            if heat[r, c] > thr and self.water[i] >= self.DROP_MIN:
+                drops[(r, c)] = drops.get((r, c), 0.0) + self.water[i]
+                self.water[i] = 0.0
+        self.water = np.minimum(self.TANK, self.water + self.REFILL)  # resupply
+        return drops
 
 
 def main():
@@ -165,8 +198,8 @@ def main():
             t0 = k * args.interval
             rst = run_dir / rst_name(t0)
             if controller is not None and rst.exists():
-                nd, na = suppress_in_restart(rst, controller, MICRO_STEPS)
-                print(f"[{arm}] cycle {k}: {na} active cells, {nd} drone drops")
+                nd, na, lit = suppress_in_restart(rst, controller, MICRO_STEPS)
+                print(f"[{arm}] cycle {k}: {na} active cells, {nd} drops, {lit:.0f} L")
             set_times(nml, t0, t0 + args.interval, restart=True, interval=args.interval)
             ok = run_wrf(run_dir, run_dir / f"c{k}.log")
             if not ok:
