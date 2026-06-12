@@ -227,6 +227,7 @@ class DefenderSwarmVecEnv(VecEnv):
 
     def step_wait(self):
         g = self.grid
+        old = self.drone_posf.copy()
         self.drone_posf = np.clip(self.drone_posf + np.clip(self._actions, -1, 1) * self.max_move,
                                   0, g - 1)
         self.drone_pos = np.round(self.drone_posf).astype(np.int64)
@@ -237,29 +238,43 @@ class DefenderSwarmVecEnv(VecEnv):
         else:
             dist_map = np.full((g, g), g, float)
 
+        # Lay retardant CONTINUOUSLY along each drone's path this step (not just
+        # at the endpoint) -- otherwise a fast drone leaves gaps the fire pours
+        # through and no blocking line can ever form. Reward productive laying
+        # (just ahead of the front) and CONNECTIVITY (extending an existing
+        # line), so the fleet learns one coherent barrier rather than confetti.
         productive = np.zeros(self.n_drones, np.float32)
+        connected = np.zeros(self.n_drones, np.float32)
         wasteful = np.zeros(self.n_drones, np.float32)
-        r = self.drone_pos[:, 0]; c = self.drone_pos[:, 1]
+        seg = self.drone_posf - old
+        seglen = np.linalg.norm(seg, axis=1)
         for i in range(self.n_drones):
-            ri, ci = int(r[i]), int(c[i])
-            d = dist_map[ri, ci]
-            can = (self.sim.burned_area[ri, ci] == 0
-                   and self.sim.heat_intensity[ri, ci] <= thr
-                   and self.ret[i] >= 1.0)
-            if can:
-                already = self.sim.retardant[ri, ci] > 0.5
-                if not already and d <= 2 * self.front_band + 4:
-                    rr = slice(max(0, ri - 1), ri + 2); cc = slice(max(0, ci - 1), ci + 2)
-                    self.sim.retardant[rr, cc] = 1.0
-                    self.ret[i] -= 1.0
-                    self._ret_laid += 1.0
-                    if 1.0 <= d <= self.front_band + 2:
-                        productive[i] = 1.0
-                    else:
-                        wasteful[i] = 0.5
-                elif already:
-                    wasteful[i] = 0.3
+            npts = int(seglen[i]) + 1
+            for t in np.linspace(0.0, 1.0, npts):
+                if self.ret[i] < 1.0:
+                    break
+                p = old[i] + t * seg[i]
+                ri, ci = int(round(p[0])), int(round(p[1]))
+                if (self.sim.burned_area[ri, ci] or self.sim.heat_intensity[ri, ci] > thr
+                        or self.sim.retardant[ri, ci] > 0.5):
+                    continue
+                d = dist_map[ri, ci]
+                if d > 2 * self.front_band + 4:
+                    wasteful[i] += 1.0
+                    continue
+                nbr = self.sim.retardant[max(0, ri-1):ri+2, max(0, ci-1):ci+2].max() > 0.5
+                rr = slice(max(0, ri - 1), ri + 2); cc = slice(max(0, ci - 1), ci + 2)
+                self.sim.retardant[rr, cc] = 1.0
+                self.ret[i] -= 1.0
+                self._ret_laid += 1.0
+                if 1.0 <= d <= self.front_band + 2:
+                    productive[i] += 1.0
+                if nbr:
+                    connected[i] += 1.0
             self.ret[i] = min(self.ret_capacity, self.ret[i] + self.ret_regen)
+        productive = np.minimum(productive, 4.0)
+        connected = np.minimum(connected, 4.0)
+        wasteful = np.minimum(wasteful, 4.0)
 
         self.sim.step()
         self.steps += 1
@@ -272,10 +287,11 @@ class DefenderSwarmVecEnv(VecEnv):
         # standoff shaping: be at ~front_band ahead of the fire (the line zone)
         standoff = np.exp(-((self._dist_cells - self.front_band) / 3.0) ** 2)
         rewards = (
-            -self.spread_penalty * new_burned / self.n_drones
+            -self.spread_penalty * new_burned / self.n_drones      # dominant: stop the fire
             - 0.01 * active_cells / self.n_drones
-            + 1.0 * productive
-            - 0.3 * wasteful
+            + 0.15 * productive
+            + 0.25 * connected                                     # build ONE line
+            - 0.15 * wasteful
             + 0.15 * standoff
             - 0.1 * (self._nn_dist <= 1.0)
         ).astype(np.float32)
