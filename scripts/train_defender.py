@@ -60,6 +60,8 @@ def main():
     p.add_argument("--ignitions", type=int, default=1)
     p.add_argument("--max-steps", type=int, default=160)
     p.add_argument("--front-band", type=float, default=5.0)
+    p.add_argument("--grid-choices", default="", help="comma list to randomize grid each episode (scale invariance)")
+    p.add_argument("--ign-choices", default="", help="comma list to randomize #ignitions each episode")
     p.add_argument("--spread-penalty", type=float, default=1.0)
     p.add_argument("--ent-coef", type=float, default=0.01)
     p.add_argument("--eval-episodes", type=int, default=16)
@@ -88,7 +90,12 @@ def main():
         print(f"      {k:7s}: {b:7.0f} burned ({b/tot:.0%})  contained={x:.0%}  retardant={rl:.0f}")
 
     print("\n[2/4] Training ...")
-    env = DefenderSwarmVecEnv(**kwargs)
+    train_kwargs = dict(kwargs)        # eval uses fixed grid; training randomizes
+    if args.grid_choices:
+        train_kwargs["grid_choices"] = [int(x) for x in args.grid_choices.split(",")]
+    if args.ign_choices:
+        train_kwargs["ign_choices"] = [int(x) for x in args.ign_choices.split(",")]
+    env = DefenderSwarmVecEnv(**train_kwargs)
     env.seed(args.seed)
     model = PPO("MlpPolicy", env, seed=args.seed, verbose=1,
                 n_steps=256, batch_size=512, n_epochs=8, gamma=0.99,

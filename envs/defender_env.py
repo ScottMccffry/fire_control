@@ -57,8 +57,12 @@ class DefenderSwarmVecEnv(VecEnv):
         front_band: float = 5.0,        # ideal standoff (cells) ahead of the fire
         line_kw: float = 900.0,         # retardant strength (raises ignition bar)
         spread_penalty: float = 1.0,
+        grid_choices=None,              # if set, randomize grid each episode (scale invariance)
+        ign_choices=None,               # if set, randomize #ignitions each episode
         episode_seed: Optional[int] = None,
     ):
+        self.grid_choices = list(grid_choices) if grid_choices else None
+        self.ign_choices = list(ign_choices) if ign_choices else None
         self.grid = int(grid_size)
         self.n_drones = int(n_drones)
         self.max_steps = int(max_steps)
@@ -105,6 +109,12 @@ class DefenderSwarmVecEnv(VecEnv):
         rng = np.random.default_rng(seed) if seed is not None else self._rng
         if seed is not None:
             np.random.seed(seed)
+        # domain randomization: vary grid size / #ignitions per episode so the
+        # shared per-drone policy becomes genuinely scale-invariant
+        if self.grid_choices is not None:
+            self.grid = int(rng.choice(self.grid_choices))
+        if self.ign_choices is not None:
+            self.n_ignitions = int(rng.choice(self.ign_choices))
         g = self.grid
         self.sim = MockFireSimulator(grid_size=(g, g), cell_size_meters=100.0)
         self.sim.set_weather(wind_speed=self.wind_speed,

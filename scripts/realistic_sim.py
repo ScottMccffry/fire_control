@@ -24,9 +24,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from sim import MockFireSimulator          # noqa: E402
 from scipy.spatial import cKDTree          # noqa: E402
+from scipy import ndimage                   # noqa: E402
 import combined_sim as C                    # noqa: E402  (reuse geometry helpers)
 
 CELL_M = 25.0
+DEF_FRONT_BAND = 5.0           # standoff gate for learned-policy retardant laying
 SUBSTEPS = 4
 DRONE_CPS = 16.0 * (60.0 / SUBSTEPS) / CELL_M     # drone cells/substep
 TRUCK_SPEED = 6.0                                  # cells/tick (slow, off-road)
@@ -156,7 +158,7 @@ def hillshade(ele, az=315.0, alt=45.0):
 
 
 def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
-        use_fleet=True, record=False, deploy_delay=0, pattern="web"):
+        use_fleet=True, record=False, deploy_delay=0, pattern="web", policy_path=None):
     sim, foyer, assets = setup(grid, n_assets, n_fires, seed)
     am = amask(assets, grid)
     na = int(am.sum())
@@ -189,6 +191,7 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
         # containment lines are sized to the fire AS FOUND on arrival, so build
         # them at deployment time (after the mobilization delay), not up front.
         rings, d_tgt, deployed = None, d_pos.copy(), False
+        _pol, _obs = None, None       # learned-policy model + observation builder
     treated = np.zeros((grid, grid), bool)
     frames = []
 
@@ -207,7 +210,15 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
             else:
                 cen, rad = foyer, perim_r
             rad = float(np.clip(rad, 20.0, 0.46 * grid))
-            if pattern == "web":
+            if pattern == "learned":
+                from stable_baselines3 import PPO
+                from envs.defender_env import DefenderSwarmVecEnv
+                _pol = PPO.load(policy_path)
+                _obs = DefenderSwarmVecEnv(grid_size=grid, n_drones=Nd, n_ignitions=1)
+                rings = np.zeros((0, 2))
+                d_tgt = d_pos.copy()
+                deployed = True
+            elif pattern == "web":
                 # spider web: rings (defense in depth) + spokes, from the fire
                 # front (r_in) out to the perimeter (r_out)
                 r_in = float(np.clip(rad - 4, 12.0, rad))
@@ -218,9 +229,10 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
             else:
                 lattice = np.vstack([C.containment_perimeter(cen, grid, rad),
                                      adaptive_lattice(cen, rad, sim.wind_direction, comp, grid)])
-            rings = np.vstack([C.asset_rings(assets, foyer, grid), lattice])
-            d_tgt = rings[np.arange(Nd) % len(rings)]
-            deployed = True
+            if pattern != "learned":
+                rings = np.vstack([C.asset_rings(assets, foyer, grid), lattice])
+                d_tgt = rings[np.arange(Nd) % len(rings)]
+                deployed = True
 
         if not (use_fleet and deployed):
             if record and t % 2 == 0:
@@ -295,14 +307,39 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
             dn = availd if len(availd) else np.arange(nT-na_t)
             ddt = np.linalg.norm(d_pos[:, None] - def_pos[None, dn], axis=2)
             dhi = dn[ddt.argmin(1)]
+            if pattern == "learned":
+                act = sim.heat_intensity > thr
+                dmap = ndimage.distance_transform_edt(~act) if act.any() else np.full((grid, grid), grid, float)
             for _ in range(SUBSTEPS):
                 d_mode[(d_mode == 0) & (d_r <= 0)] = 1
                 d_mode[(d_mode == 1) & (d_r >= RET_TANK-1e-6)] = 0
-                goal = np.where((d_mode == 1)[:, None], def_pos[dhi], d_tgt)
-                dd = goal - d_pos; nd = np.linalg.norm(dd, axis=1, keepdims=True)
-                d_pos = np.clip(d_pos + np.where(nd > 1e-6, dd/nd, 0)*np.minimum(DRONE_CPS, nd), 0, grid-1)
-                ip = np.round(d_pos).astype(int)
-                lay = (d_mode == 0) & (nd[:, 0] < 1.5) & (d_r > 0)
+                if pattern == "learned":
+                    # re-query the policy every substep for finer control
+                    _obs.sim = sim
+                    _obs.drone_pos = np.round(d_pos).astype(np.int64)
+                    _obs.ret = d_r.astype(np.float32)
+                    ddir = np.clip(_pol.predict(_obs._build_obs(), deterministic=True)[0],
+                                   -1, 1).astype(float).reshape(-1, 2)
+                    home = def_pos[dhi]
+                    dh = home - d_pos; nh = np.linalg.norm(dh, axis=1, keepdims=True)
+                    # laying drones move at the policy's TRAINED step (max_move),
+                    # not the fast attack speed -- otherwise its fine directional
+                    # choices get amplified ~25x. Refuel runs stay fast.
+                    step = np.where((d_mode == 1)[:, None],
+                                    np.where(nh > 1e-6, dh/nh, 0)*np.minimum(DRONE_CPS, nh),
+                                    ddir * _obs.max_move)
+                    d_pos = np.clip(d_pos + step, 0, grid-1)
+                    ip = np.round(d_pos).astype(int)
+                    rr_, cc_ = ip[:, 0], ip[:, 1]
+                    lay = ((d_mode == 0) & (d_r > 0) & (sim.burned_area[rr_, cc_] == 0)
+                           & (sim.heat_intensity[rr_, cc_] <= thr)
+                           & (dmap[rr_, cc_] <= 2 * DEF_FRONT_BAND + 4))
+                else:
+                    goal = np.where((d_mode == 1)[:, None], def_pos[dhi], d_tgt)
+                    dd = goal - d_pos; nd = np.linalg.norm(dd, axis=1, keepdims=True)
+                    d_pos = np.clip(d_pos + np.where(nd > 1e-6, dd/nd, 0)*np.minimum(DRONE_CPS, nd), 0, grid-1)
+                    ip = np.round(d_pos).astype(int)
+                    lay = (d_mode == 0) & (nd[:, 0] < 1.5) & (d_r > 0)
                 for i in np.where(lay)[0]:
                     r, c = ip[i]
                     if treated[r, c] or sim.burned_area[r, c]:
@@ -399,8 +436,10 @@ def main():
     p.add_argument("--ticks", type=int, default=300)
     p.add_argument("--deploy-delay", type=int, default=0,
                    help="minutes the fire grows before the fleet deploys (1 tick = 1 min)")
-    p.add_argument("--pattern", choices=["web", "grid"], default="web",
-                   help="containment geometry: spider web (rings+spokes, defense in depth) or rotated grid")
+    p.add_argument("--pattern", choices=["web", "grid", "learned"], default="web",
+                   help="defender control: spider web, rotated grid, or 'learned' per-drone policy")
+    p.add_argument("--policy", default="agents/checkpoints/defender_ppo_g48_d30_v1.zip",
+                   help="trained defender policy for --pattern learned")
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--out", default="docs/figures/realistic.mp4")
     p.add_argument("--fps", type=int, default=18)
@@ -420,7 +459,7 @@ def main():
         args.grid, args.attack_trucks, args.defender_trucks, args.dpt_attack,
         args.dpt_def, args.assets, args.fires, args.compartment, args.ticks,
         args.seed, use_fleet=True, record=True, deploy_delay=args.deploy_delay,
-        pattern=args.pattern)
+        pattern=args.pattern, policy_path=args.policy)
     print(f"  assets {ab}/{na} ({ab/max(na,1):.0%})  total {tb} ({tb/tot:.0%})  "
           f"reduction {(tb0-tb)/max(tb0,1):+.0%}")
     status = (f"deploy delay {args.deploy_delay} min  |  baseline {tb0/tot:.0%} grid  |  "
