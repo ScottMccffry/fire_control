@@ -47,6 +47,7 @@ LINE_STRENGTH = 1.0     # retardant level laid per cell (0..1); raises the local
                         # ignition bar but is NOT a fireproof wall -- a hot
                         # enough fire can still breach the line
 LINE_KW = 380.0         # extra incoming kW/m^2 a full-strength line demands
+COMPARTMENT = 30.0      # compartment cell size (cells) for the grid/dichotomy mode
 # fire regime (overridable from the CLI)
 WIND = 4.0
 SPREAD = 0.34
@@ -138,6 +139,23 @@ def containment_perimeter(foyer, grid, radius):
     return np.clip(ring, 1, grid - 2)
 
 
+def compartment_lines(foyer, radius, comp, grid):
+    """A lattice of retardant lines (vertical + horizontal) inside the perimeter
+    disk -- the 'dichotomy': it carves the area into comp x comp compartments so
+    the fire is trapped in small bounded pockets that attack drones can finish
+    off before it builds enough intensity to breach the next line."""
+    pts = []
+    for d in np.arange(-radius, radius + 1e-6, comp):
+        half = np.sqrt(max(radius ** 2 - d ** 2, 0.0))
+        if half < 1:
+            continue
+        rr = np.arange(foyer[0] - half, foyer[0] + half, 1.8)
+        pts.append(np.stack([rr, np.full_like(rr, foyer[1] + d)], 1))   # vertical
+        cc = np.arange(foyer[1] - half, foyer[1] + half, 1.8)
+        pts.append(np.stack([np.full_like(cc, foyer[0] + d), cc], 1))   # horizontal
+    return np.clip(np.vstack(pts), 1, grid - 2)
+
+
 def place_trucks(grid, n, foyer, seed):
     """Place n trucks evenly spaced by ANGLE around the foyer (with small jitter)
     so they surround the fire -- guarantees all n are placed and spreads launch
@@ -190,11 +208,13 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
         can_omega = CANADAIR_SPEED / max(clr, 1.0)   # rad/tick along the loiter
         # defender drones: targets depend on the defense doctrine
         targets = []
-        if defense in ("assets", "both"):
+        pr = perim_r if perim_r else 0.32 * grid
+        if defense in ("assets", "both", "grid"):
             targets.append(asset_rings(assets, foyer, grid))
-        if defense in ("perimeter", "both"):
-            pr = perim_r if perim_r else 0.32 * grid
+        if defense in ("perimeter", "both", "grid"):
             targets.append(containment_perimeter(foyer, grid, pr))
+        if defense == "grid":
+            targets.append(compartment_lines(foyer, pr, COMPARTMENT, grid))
         rings = np.vstack(targets)
         Nd = n_def_trucks * dpt_def
         d_home = np.repeat(np.arange(n_def_trucks), dpt_def)[:Nd]
@@ -328,7 +348,7 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
                 at_line = (d_mode == 0) & (nd[:, 0] < 1.5) & (d_tank > 0)
                 for i in np.where(at_line)[0]:
                     r, c = ip[i]
-                    if treated[r, c]:
+                    if treated[r, c] or sim.burned_area[r, c]:   # can't lay in flames
                         continue
                     rr = slice(max(0, r - LINE_HALF_WIDTH), r + LINE_HALF_WIDTH + 1)
                     cc = slice(max(0, c - LINE_HALF_WIDTH), c + LINE_HALF_WIDTH + 1)
@@ -430,9 +450,12 @@ def main():
     p.add_argument("--spread", type=float, default=None, help="base spread rate")
     p.add_argument("--foyer", type=float, default=None, help="foyer radius (cells)")
     p.add_argument("--dry", action="store_true", help="very dry fuel (intense fire)")
-    p.add_argument("--defense", choices=["assets", "perimeter", "both"], default="assets",
-                   help="defender doctrine: per-asset rings, one big containment perimeter, or both")
+    p.add_argument("--defense", choices=["assets", "perimeter", "both", "grid"], default="assets",
+                   help="defender doctrine: per-asset rings, one perimeter, both, or "
+                        "'grid' (perimeter + lattice that compartmentalizes the fire)")
     p.add_argument("--perim", type=float, default=None, help="perimeter radius in cells")
+    p.add_argument("--compartment", type=float, default=None,
+                   help="compartment cell size in cells for --defense grid (smaller = more lines)")
     p.add_argument("--canadairs", type=int, default=0,
                    help="number of 70,000 L air tankers loitering over the fire (refuel node + bombing)")
     p.add_argument("--canadair-radius", type=float, default=None, help="Canadair loiter radius (cells)")
@@ -446,9 +469,11 @@ def main():
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
-    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST, LINE_STRENGTH, LINE_KW, PEAK_KW
+    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST, LINE_STRENGTH, LINE_KW, PEAK_KW, COMPARTMENT
     if args.peak_kw is not None:
         PEAK_KW = args.peak_kw
+    if args.compartment is not None:
+        COMPARTMENT = args.compartment
     if args.tank:
         TANK = args.tank
         DTANK = args.tank
