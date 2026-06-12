@@ -110,6 +110,16 @@ def asset_rings(assets, foyer, grid, standoff=6):
     return np.vstack(pts)
 
 
+def containment_perimeter(foyer, grid, radius):
+    """A single large closed retardant ring around the whole foyer: stops the
+    fire's GENERAL advance so everything OUTSIDE the perimeter is protected
+    (strategic containment, not just per-asset rings)."""
+    n = max(32, int(2 * np.pi * radius / 1.8))
+    th = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    ring = foyer[None, :] + radius * np.stack([np.sin(th), np.cos(th)], 1)
+    return np.clip(ring, 1, grid - 2)
+
+
 def place_trucks(grid, n, foyer, seed):
     rng = np.random.default_rng(seed + 1)
     safe = SAFE_M / CELL_M
@@ -130,7 +140,7 @@ def place_trucks(grid, n, foyer, seed):
 
 
 def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
-        ticks, seed, use_fleet=True, record=False):
+        ticks, seed, use_fleet=True, record=False, defense="assets", perim_r=None):
     sim, foyer, assets = setup(grid, n_assets, seed)
     amask = asset_mask(assets, grid)
     na_cells = int(amask.sum())
@@ -151,11 +161,19 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
         a_water = np.full(Na, TANK)
         a_mode = np.zeros(Na, int)            # 0 fight, 1 refuel
         a_reserve = np.full(n_attack_trucks, TRUCK_RESERVE)
-        # defender drones
-        rings = asset_rings(assets, foyer, grid)
+        # defender drones: targets depend on the defense doctrine
+        targets = []
+        if defense in ("assets", "both"):
+            targets.append(asset_rings(assets, foyer, grid))
+        if defense in ("perimeter", "both"):
+            pr = perim_r if perim_r else 0.32 * grid
+            targets.append(containment_perimeter(foyer, grid, pr))
+        rings = np.vstack(targets)
         Nd = n_def_trucks * dpt_def
         d_home = np.repeat(np.arange(n_def_trucks), dpt_def)[:Nd]
         d_pos = def_trucks[d_home] + rng.uniform(-2, 2, (Nd, 2))
+        # round-robin slot assignment guarantees every line slot is covered
+        # (more drones than slots -> a gap-free, fully-closed line).
         d_slot = np.arange(Nd) % len(rings)
         d_target = rings[d_slot]
         d_tank = np.full(Nd, DTANK)
@@ -331,6 +349,9 @@ def main():
     p.add_argument("--spread", type=float, default=None, help="base spread rate")
     p.add_argument("--foyer", type=float, default=None, help="foyer radius (cells)")
     p.add_argument("--dry", action="store_true", help="very dry fuel (intense fire)")
+    p.add_argument("--defense", choices=["assets", "perimeter", "both"], default="assets",
+                   help="defender doctrine: per-asset rings, one big containment perimeter, or both")
+    p.add_argument("--perim", type=float, default=None, help="perimeter radius in cells")
     p.add_argument("--out", default="docs/figures/combined.mp4")
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
@@ -355,10 +376,11 @@ def main():
                              args.ticks, args.seed, use_fleet=False)
     print(f"  assets burned {ab0}/{na} ({ab0/max(na,1):.0%})  total {tb0} ({tb0/tot:.0%})")
 
-    print("combined fleet (8 attack + 2 defender) ...")
+    print(f"combined fleet (8 attack + 2 defender, defense={args.defense}) ...")
     ab1, na, tb1, frames, assets = run(args.grid, args.attack_trucks, args.defender_trucks,
                                        args.dpt_attack, args.dpt_def, args.assets,
-                                       args.ticks, args.seed, use_fleet=True, record=True)
+                                       args.ticks, args.seed, use_fleet=True, record=True,
+                                       defense=args.defense, perim_r=args.perim)
     print(f"  assets burned {ab1}/{na} ({ab1/max(na,1):.0%})  total {tb1} ({tb1/tot:.0%})")
     print(f"  total-burn reduction {(tb0-tb1)/max(tb0,1):+.0%}")
     status = (f"baseline: {ab0}/{na} assets lost, {tb0/tot:.0%} grid  |  "
