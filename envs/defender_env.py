@@ -217,6 +217,26 @@ class DefenderSwarmVecEnv(VecEnv):
         n = np.linalg.norm(v, axis=1, keepdims=True)
         return np.where(n > 0, v / n, 0.0).astype(np.float32)
 
+    def expert_actions(self):
+        """Hand-coded EXPERT to clone: each drone heads to the containment ring
+        at its OWN bearing around the fire centroid, so the fleet spreads into a
+        circle a standoff ahead of the front and lays it as a connected line."""
+        thr = self.sim.ignition_threshold * 0.3
+        active = self.sim.heat_intensity > thr
+        if not active.any():
+            return np.zeros((self.n_drones, 2), np.float32)
+        ar, ac = np.where(active)
+        C = np.array([ar.mean(), ac.mean()])
+        d0 = np.stack([ar - C[0], ac - C[1]], 1)
+        R = float(np.percentile(np.linalg.norm(d0, axis=1), 92))   # robust fire radius
+        ring_r = R + 2.0 * self.front_band
+        d = self.drone_posf - C
+        ang = np.arctan2(d[:, 0], d[:, 1])
+        target = C + ring_r * np.stack([np.sin(ang), np.cos(ang)], 1)
+        v = target - self.drone_posf
+        n = np.linalg.norm(v, axis=1, keepdims=True)
+        return np.where(n > 0, v / n, 0.0).astype(np.float32)
+
     # ------------------------------------------------------------- VecEnv API
     def reset(self):
         self._new_episode()
