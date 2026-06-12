@@ -43,24 +43,29 @@ RETREAT_M = 200.0
 DROP_EFF = 0.7
 LINE_HALF_WIDTH = 1
 LAY_COST = 1.0
+# fire regime (overridable from the CLI)
+WIND = 4.0
+SPREAD = 0.34
+FOYER_R = 11.0
+MOIST = (0.05, 0.12)
 
 
 def setup(grid, n_assets, seed):
     rng = np.random.default_rng(seed)
     np.random.seed(seed)
     sim = MockFireSimulator(grid_size=(grid, grid), cell_size_meters=CELL_M)
-    sim.fuel_moisture = rng.uniform(0.05, 0.12, (grid, grid))
-    sim.fuel_load = rng.uniform(0.85, 1.0, (grid, grid))
-    sim.base_spread_rate = 0.34
+    sim.fuel_moisture = rng.uniform(MOIST[0], MOIST[1], (grid, grid))
+    sim.fuel_load = rng.uniform(0.9, 1.0, (grid, grid))
+    sim.base_spread_rate = SPREAD
     sim.elevation[:] = 100.0
-    sim.set_weather(wind_speed=4.0, wind_direction=float(rng.uniform(0, 360)),
-                    temperature=34.0, humidity=0.10)
+    sim.set_weather(wind_speed=WIND, wind_direction=float(rng.uniform(0, 360)),
+                    temperature=36.0, humidity=0.08)
     # dense central foyer
     c = np.array([grid / 2, grid / 2])
     yy, xx = np.mgrid[0:grid, 0:grid]
-    disk = (yy - c[0]) ** 2 + (xx - c[1]) ** 2 <= 11.0 ** 2
+    disk = (yy - c[0]) ** 2 + (xx - c[1]) ** 2 <= FOYER_R ** 2
     sim.burned_area[disk] = 1
-    sim.heat_intensity[disk] = sim.max_heat_intensity * 0.9
+    sim.heat_intensity[disk] = sim.max_heat_intensity
 
     # critical infrastructure: random, ring-shaped band around the foyer
     assets = []
@@ -322,14 +327,26 @@ def main():
     p.add_argument("--seed", type=int, default=5)
     p.add_argument("--tank", type=float, default=None,
                    help="per-drone payload in L (sets attack water + defender retardant)")
+    p.add_argument("--wind", type=float, default=None, help="wind speed m/s")
+    p.add_argument("--spread", type=float, default=None, help="base spread rate")
+    p.add_argument("--foyer", type=float, default=None, help="foyer radius (cells)")
+    p.add_argument("--dry", action="store_true", help="very dry fuel (intense fire)")
     p.add_argument("--out", default="docs/figures/combined.mp4")
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
-    global TANK, DTANK
+    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST
     if args.tank:
         TANK = args.tank
         DTANK = args.tank
+    if args.wind is not None:
+        WIND = args.wind
+    if args.spread is not None:
+        SPREAD = args.spread
+    if args.foyer is not None:
+        FOYER_R = args.foyer
+    if args.dry:
+        MOIST = (0.02, 0.05)
     tot = args.grid ** 2
 
     print("baseline (no fleet) ...")
