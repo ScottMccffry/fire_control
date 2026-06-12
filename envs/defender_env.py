@@ -54,6 +54,8 @@ class DefenderSwarmVecEnv(VecEnv):
         ret_capacity: float = 10.0,
         ret_regen_per_step: float = 1.0,
         max_move: float = 1.5,
+        move_frac: float = None,        # if set, max_move = move_frac*grid (scale-relative)
+        peak_kw: float = None,          # fire peak intensity (match realistic_sim)
         front_band: float = 5.0,        # ideal standoff (cells) ahead of the fire
         line_kw: float = 900.0,         # retardant strength (raises ignition bar)
         spread_penalty: float = 1.0,
@@ -74,6 +76,8 @@ class DefenderSwarmVecEnv(VecEnv):
         self.ret_capacity = float(ret_capacity)
         self.ret_regen = float(ret_regen_per_step)
         self.max_move = float(max_move)
+        self.move_frac = move_frac
+        self.peak_kw = peak_kw
         self.front_band = float(front_band)
         self.line_kw = float(line_kw)
         self.spread_penalty = float(spread_penalty)
@@ -116,7 +120,11 @@ class DefenderSwarmVecEnv(VecEnv):
         if self.ign_choices is not None:
             self.n_ignitions = int(rng.choice(self.ign_choices))
         g = self.grid
+        if self.move_frac is not None:
+            self.max_move = float(self.move_frac) * g    # grid-relative drone step
         self.sim = MockFireSimulator(grid_size=(g, g), cell_size_meters=100.0)
+        if self.peak_kw is not None:
+            self.sim.max_heat_intensity = float(self.peak_kw)
         self.sim.set_weather(wind_speed=self.wind_speed,
                              wind_direction=float(rng.uniform(0, 360)),
                              temperature=30.0, humidity=0.2)
@@ -130,10 +138,13 @@ class DefenderSwarmVecEnv(VecEnv):
         pts = [(int(rng.integers(m, g - m)), int(rng.integers(m, g - m)))
                for _ in range(self.n_ignitions)]
         self.sim.set_ignition_points(pts)
-        # drones start clustered near the centre (like trucks staging)
+        # drones start spread in a ring AROUND the fire (like trucks surrounding
+        # it), so the fleet must form up and lay ahead of the front
         c = np.array([g / 2, g / 2])
-        self.drone_posf = c + rng.uniform(-3, 3, (self.n_drones, 2))
-        self.drone_posf = np.clip(self.drone_posf, 0, g - 1)
+        ang = rng.uniform(0, 2 * np.pi, self.n_drones)
+        rad = rng.uniform(0.06, 0.20, self.n_drones) * g
+        self.drone_posf = np.clip(c + np.stack([rad * np.sin(ang), rad * np.cos(ang)], 1),
+                                  0, g - 1)
         self.drone_pos = np.round(self.drone_posf).astype(np.int64)
         self.ret[:] = self.ret_capacity
         self.steps = 0

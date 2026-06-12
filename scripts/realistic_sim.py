@@ -29,6 +29,7 @@ import combined_sim as C                    # noqa: E402  (reuse geometry helper
 
 CELL_M = 25.0
 DEF_FRONT_BAND = 5.0           # standoff gate for learned-policy retardant laying
+LEARN_MOVE_FRAC = 0.03         # learned drone step as fraction of grid (matches training)
 SUBSTEPS = 4
 DRONE_CPS = 16.0 * (60.0 / SUBSTEPS) / CELL_M     # drone cells/substep
 TRUCK_SPEED = 6.0                                  # cells/tick (slow, off-road)
@@ -310,24 +311,25 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
             if pattern == "learned":
                 act = sim.heat_intensity > thr
                 dmap = ndimage.distance_transform_edt(~act) if act.any() else np.full((grid, grid), grid, float)
+                # ONE policy decision per tick (matches training tempo: one
+                # decision per fire-step), grid-relative step spread over substeps
+                _obs.sim = sim
+                _obs.drone_pos = np.round(d_pos).astype(np.int64)
+                _obs.ret = d_r.astype(np.float32)
+                ddir = np.clip(_pol.predict(_obs._build_obs(), deterministic=True)[0],
+                               -1, 1).astype(float).reshape(-1, 2)
+                lay_step = LEARN_MOVE_FRAC * grid / SUBSTEPS
             for _ in range(SUBSTEPS):
                 d_mode[(d_mode == 0) & (d_r <= 0)] = 1
                 d_mode[(d_mode == 1) & (d_r >= RET_TANK-1e-6)] = 0
                 if pattern == "learned":
-                    # re-query the policy every substep for finer control
-                    _obs.sim = sim
-                    _obs.drone_pos = np.round(d_pos).astype(np.int64)
-                    _obs.ret = d_r.astype(np.float32)
-                    ddir = np.clip(_pol.predict(_obs._build_obs(), deterministic=True)[0],
-                                   -1, 1).astype(float).reshape(-1, 2)
                     home = def_pos[dhi]
                     dh = home - d_pos; nh = np.linalg.norm(dh, axis=1, keepdims=True)
-                    # laying drones move at the policy's TRAINED step (max_move),
-                    # not the fast attack speed -- otherwise its fine directional
-                    # choices get amplified ~25x. Refuel runs stay fast.
+                    # laying drones move at the grid-relative trained step; refuel
+                    # runs stay fast so they can reach distant trucks
                     step = np.where((d_mode == 1)[:, None],
                                     np.where(nh > 1e-6, dh/nh, 0)*np.minimum(DRONE_CPS, nh),
-                                    ddir * _obs.max_move)
+                                    ddir * lay_step)
                     d_pos = np.clip(d_pos + step, 0, grid-1)
                     ip = np.round(d_pos).astype(int)
                     rr_, cc_ = ip[:, 0], ip[:, 1]
