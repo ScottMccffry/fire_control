@@ -79,6 +79,9 @@ def main():
     p.add_argument("--continuous", action="store_true", help="vector (Box) movement")
     p.add_argument("--water-cost", type=float, default=0.0,
                    help="per-drop reward penalty (volume-efficiency variant)")
+    p.add_argument("--wind-obs", action="store_true", help="add wind/spread direction to obs")
+    p.add_argument("--spread-penalty", type=float, default=1.0, help="weight on new-burned penalty (front focus)")
+    p.add_argument("--ent-coef", type=float, default=0.01, help="PPO entropy (exploration)")
     p.add_argument("--tag", default="", help="checkpoint name suffix")
     p.add_argument("--output", default="./agents/checkpoints")
     args = p.parse_args()
@@ -90,6 +93,8 @@ def main():
     kwargs = env_kwargs(args.difficulty)
     kwargs["continuous"] = args.continuous
     kwargs["water_cost"] = args.water_cost
+    kwargs["wind_obs"] = args.wind_obs
+    kwargs["spread_penalty"] = args.spread_penalty
     print("=" * 66)
     print("Per-Drone Shared-Policy PPO (decentralized)")
     print("=" * 66)
@@ -109,7 +114,7 @@ def main():
     model = PPO(
         "MlpPolicy", env, seed=args.seed, verbose=1,
         n_steps=256, batch_size=512, n_epochs=8,
-        gamma=0.99, gae_lambda=0.95, ent_coef=0.01, learning_rate=3e-4,
+        gamma=0.99, gae_lambda=0.95, ent_coef=args.ent_coef, learning_rate=3e-4,
         policy_kwargs=dict(net_arch=[128, 128]),
     )
     ckpt = CheckpointCallback(save_freq=20000, save_path=str(Path(args.output) / "ckpt"),

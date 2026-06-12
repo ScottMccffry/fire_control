@@ -53,11 +53,15 @@ class PerDroneSwarmVecEnv(VecEnv):
         continuous: bool = False,
         max_move: float = 1.5,
         water_cost: float = 0.0,
+        wind_obs: bool = False,
+        spread_penalty: float = 1.0,
         episode_seed: Optional[int] = None,
     ):
         self.continuous = bool(continuous)
         self.max_move = float(max_move)
         self.water_cost = float(water_cost)
+        self.wind_obs = bool(wind_obs)
+        self.spread_penalty = float(spread_penalty)
         self.grid = int(grid_size)
         self.n_drones = int(n_drones)
         self.max_steps = int(max_steps)
@@ -78,6 +82,8 @@ class PerDroneSwarmVecEnv(VecEnv):
         # + fleet centroid dx,dy (2) + rank (1)
         # + KNN drone offsets (2*_KNN) + local heat patch (_PATCH^2)
         obs_dim = 2 + 1 + 3 + 3 + 2 + 1 + 2 * _KNN + _PATCH * _PATCH
+        if self.wind_obs:
+            obs_dim += 2   # wind/spread direction unit vector (where the fire heads)
         # Discrete: 5 cardinal moves. Continuous: a 2D velocity vector per drone
         # (dx, dy in [-1, 1]) integrated at up to `max_move` cells/step -- this is
         # the "vector movement" variant (lets a drone head in any direction).
@@ -200,6 +206,10 @@ class PerDroneSwarmVecEnv(VecEnv):
         for i in range(self.n_drones):
             patch = hp[r[i]:r[i] + _PATCH, c[i]:c[i] + _PATCH]
             obs[i, base:base + _PATCH * _PATCH] = patch.ravel()
+        if self.wind_obs:
+            wd = np.radians(self.sim.wind_direction)
+            obs[:, -2] = np.cos(wd)   # wind/spread direction (drives where fire expands)
+            obs[:, -1] = np.sin(wd)
         return obs
 
     def greedy_actions(self) -> np.ndarray:
@@ -270,7 +280,7 @@ class PerDroneSwarmVecEnv(VecEnv):
         # water_cost (>0) charges each drop, making water an explicit cost so the
         # policy learns to be frugal (the "volume reward" variant).
         rewards = (
-            -1.0 * new_burned / self.n_drones
+            -self.spread_penalty * new_burned / self.n_drones
             - 0.01 * active_cells / self.n_drones
             + (1.0 - self.water_cost) * dropped
             + 0.3 * on_fire
