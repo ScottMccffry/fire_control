@@ -65,6 +65,9 @@ def main():
     p.add_argument("--peak-kw", type=float, default=None, help="fire peak intensity (match realistic_sim ~1400)")
     p.add_argument("--move-frac", type=float, default=None, help="drone step as fraction of grid (scale-relative)")
     p.add_argument("--line-kw", type=float, default=900.0)
+    p.add_argument("--fire-headstart", type=int, default=0)
+    p.add_argument("--ret-capacity", type=float, default=10.0)
+    p.add_argument("--ret-regen", type=float, default=1.0)
     p.add_argument("--grid-choices", default="", help="comma list to randomize grid each episode (scale invariance)")
     p.add_argument("--ign-choices", default="", help="comma list to randomize #ignitions each episode")
     p.add_argument("--spread-penalty", type=float, default=1.0)
@@ -83,7 +86,8 @@ def main():
                   n_ignitions=args.ignitions, front_band=args.front_band,
                   spread_penalty=args.spread_penalty, base_spread_rate=args.base_spread,
                   wind_speed=args.wind, peak_kw=args.peak_kw, move_frac=args.move_frac,
-                  line_kw=args.line_kw)
+                  line_kw=args.line_kw, fire_headstart=args.fire_headstart,
+                  ret_capacity=args.ret_capacity, ret_regen_per_step=args.ret_regen)
     tot = args.grid ** 2
     print("=" * 64)
     print("Per-Drone DEFENDER Shared-Policy PPO")

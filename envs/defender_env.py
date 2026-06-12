@@ -56,6 +56,7 @@ class DefenderSwarmVecEnv(VecEnv):
         max_move: float = 1.5,
         move_frac: float = None,        # if set, max_move = move_frac*grid (scale-relative)
         peak_kw: float = None,          # fire peak intensity (match realistic_sim)
+        fire_headstart: int = 0,        # steps the fire grows before drones engage
         front_band: float = 5.0,        # ideal standoff (cells) ahead of the fire
         line_kw: float = 900.0,         # retardant strength (raises ignition bar)
         spread_penalty: float = 1.0,
@@ -78,6 +79,7 @@ class DefenderSwarmVecEnv(VecEnv):
         self.max_move = float(max_move)
         self.move_frac = move_frac
         self.peak_kw = peak_kw
+        self.fire_headstart = int(fire_headstart)
         self.front_band = float(front_band)
         self.line_kw = float(line_kw)
         self.spread_penalty = float(spread_penalty)
@@ -138,6 +140,8 @@ class DefenderSwarmVecEnv(VecEnv):
         pts = [(int(rng.integers(m, g - m)), int(rng.integers(m, g - m)))
                for _ in range(self.n_ignitions)]
         self.sim.set_ignition_points(pts)
+        for _ in range(self.fire_headstart):    # let the fire grow before engaging
+            self.sim.step()
         # drones start spread in a ring AROUND the fire (like trucks surrounding
         # it), so the fleet must form up and lay ahead of the front
         c = np.array([g / 2, g / 2])
