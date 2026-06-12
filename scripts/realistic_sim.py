@@ -116,7 +116,7 @@ def hillshade(ele, az=315.0, alt=45.0):
 
 
 def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
-        use_fleet=True, record=False):
+        use_fleet=True, record=False, deploy_delay=0):
     sim, foyer, assets = setup(grid, n_assets, n_fires, seed)
     am = amask(assets, grid)
     na = int(am.sum())
@@ -141,16 +141,14 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
         a_pos = t_pos[a_home] + np.random.uniform(-2, 2, (Na, 2))
         a_w = np.full(Na, WATER_TANK)
         a_mode = np.zeros(Na, int)
-        targets = [C.asset_rings(assets, foyer, grid),
-                   C.containment_perimeter(foyer, grid, perim_r),
-                   C.compartment_lines(foyer, perim_r, comp, grid)]
-        rings = np.vstack(targets)
         Nd = (nT - na_t) * dpt_d
         d_home = np.repeat(np.arange(nT - na_t), dpt_d)[:Nd]
         d_pos = t_pos[na_t + d_home] + np.random.uniform(-2, 2, (Nd, 2))
-        d_tgt = rings[np.arange(Nd) % len(rings)]
         d_r = np.full(Nd, RET_TANK)
         d_mode = np.zeros(Nd, int)
+        # containment lines are sized to the fire AS FOUND on arrival, so build
+        # them at deployment time (after the mobilization delay), not up front.
+        rings, d_tgt, deployed = None, d_pos.copy(), False
     treated = np.zeros((grid, grid), bool)
     frames = []
 
@@ -159,6 +157,33 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
         fr, fc = np.where(sim.heat_intensity > thr)
         fire_xy = np.stack([fr, fc], 1).astype(float) if len(fr) else np.zeros((0, 2))
         ftree = cKDTree(fire_xy) if len(fire_xy) else None
+
+        # --- deploy after the mobilization delay: size containment to the fire
+        #     as found on arrival (crews build lines around the bigger fire) ---
+        if use_fleet and not deployed and t >= deploy_delay:
+            if len(fire_xy):
+                cen = fire_xy.mean(0)
+                rad = float(np.linalg.norm(fire_xy - cen, axis=1).max()) + 10.0
+            else:
+                cen, rad = foyer, perim_r
+            rad = float(np.clip(rad, 20.0, 0.46 * grid))
+            targets = [C.asset_rings(assets, foyer, grid),
+                       C.containment_perimeter(cen, grid, rad),
+                       C.compartment_lines(cen, rad, comp, grid)]
+            rings = np.vstack(targets)
+            d_tgt = rings[np.arange(Nd) % len(rings)]
+            deployed = True
+
+        if not (use_fleet and deployed):
+            if record and t % 2 == 0:
+                snap = dict(heat=sim.heat_intensity.copy(), burned=sim.burned_area.copy(),
+                            treated=treated.copy(), tpos=t_pos.copy(), tmode=t_mode.copy())
+                if use_fleet:
+                    snap.update(a_pos=a_pos.copy(), a_mode=a_mode.copy(),
+                                d_pos=d_pos.copy(), d_mode=d_mode.copy())
+                frames.append(snap)
+            sim.step()
+            continue
 
         # --- trucks: resupply runs to depots when low ---
         for k in range(nT):
@@ -324,6 +349,8 @@ def main():
     p.add_argument("--fires", type=int, default=5)
     p.add_argument("--compartment", type=float, default=22.0)
     p.add_argument("--ticks", type=int, default=300)
+    p.add_argument("--deploy-delay", type=int, default=0,
+                   help="minutes the fire grows before the fleet deploys (1 tick = 1 min)")
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--out", default="docs/figures/realistic.mp4")
     p.add_argument("--fps", type=int, default=18)
@@ -338,14 +365,14 @@ def main():
                            args.dpt_attack, args.dpt_def, args.assets, args.fires,
                            args.compartment, args.ticks, args.seed, use_fleet=False)
     print(f"  assets {ab0}/{na} ({ab0/max(na,1):.0%})  total {tb0} ({tb0/tot:.0%})")
-    print("combined fleet (terrain + scattered fires + truck resupply) ...")
+    print(f"combined fleet (deploy delay {args.deploy_delay} min) ...")
     ab, na, tb, frames, assets, ele, depots, na_t = run(
         args.grid, args.attack_trucks, args.defender_trucks, args.dpt_attack,
         args.dpt_def, args.assets, args.fires, args.compartment, args.ticks,
-        args.seed, use_fleet=True, record=True)
+        args.seed, use_fleet=True, record=True, deploy_delay=args.deploy_delay)
     print(f"  assets {ab}/{na} ({ab/max(na,1):.0%})  total {tb} ({tb/tot:.0%})  "
           f"reduction {(tb0-tb)/max(tb0,1):+.0%}")
-    status = (f"baseline {ab0/na:.0%} assets / {tb0/tot:.0%} grid  |  "
+    status = (f"deploy delay {args.deploy_delay} min  |  baseline {tb0/tot:.0%} grid  |  "
               f"fleet {ab/na:.0%} assets / {tb/tot:.0%} grid")
     render(frames, args.grid, assets, ele, depots, na_t, args.out, args.fps, status)
     print(f"  wrote {args.out}")
