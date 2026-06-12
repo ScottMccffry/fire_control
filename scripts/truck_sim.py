@@ -41,7 +41,8 @@ SUB_DT = 60.0 / SUBSTEPS       # seconds per sub-step
 DRONE_CELLS_PER_SUB = DRONE_MPS * SUB_DT / CELL_M     # cells moved per sub-step
 DROP_PER_SUB = DROP_RATE_LPS * SUB_DT                 # litres per sub-step over fire
 TRUCK_RESERVE = 20000.0
-TRUCK_DISPENSE_LPM = 100.0     # litres/min a truck can hand to drones
+TRUCK_DISPENSE_LPM = 200.0     # litres/min a truck hands to drones (consumption)
+TRUCK_TOPUP_LPM = 100.0        # litres/min the supply line refills the truck tank
 SAFE_M = 1000.0                # min truck distance from fire front at placement
 RETREAT_M = 200.0             # fire-front distance that triggers a truck retreat
 
@@ -98,7 +99,7 @@ def place_trucks(grid, n, fire_xy, seed):
     return np.array(trucks)
 
 
-def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0, policy_path=None):
+def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0, policy_path=None, balance=False):
     sim, _ = make_irregular_fire(grid, 500.0, seed)
     fire_xy = active_cells(sim)
     trucks = place_trucks(grid, n_trucks, fire_xy, seed)
@@ -111,6 +112,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
         pos = trucks[home_truck].astype(float) + rng.uniform(-2, 2, (N, 2))
         water = np.full(N, TANK)
         mode = np.zeros(N, dtype=int)               # 0 fight, 1 return/refuel
+        assigned_truck = np.full(N, -1, dtype=int)  # chosen refuel truck (balance mode)
         reserve = np.full(n_trucks, TRUCK_RESERVE)
         ever_dropped = np.zeros(N, bool)
         diag = []
@@ -140,7 +142,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                     away = away / (np.linalg.norm(away) + 1e-6)
                     trucks[k] = np.clip(trucks[k] + away * (retreat * 1.5), 0, grid - 1)
         if use_drones:
-            reserve = np.minimum(TRUCK_RESERVE, reserve + TRUCK_DISPENSE_LPM)  # supply line tops up
+            reserve = np.minimum(TRUCK_RESERVE, reserve + TRUCK_TOPUP_LPM)  # supply line tops up tank
 
         # Response delay: before deployment, drones wait at their (possibly
         # retreating) trucks while the fire grows -- a realistic mobilization lag.
@@ -162,11 +164,25 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                     nearest_fire = fire_xy[idx]
                 else:
                     nearest_fire = pos
-                # nearest truck
+                # truck choice
                 dt_ = np.linalg.norm(pos[:, None, :] - trucks[None, :, :], axis=2)
-                home_idx = dt_.argmin(axis=1)
-                home = trucks[home_idx]
                 mode[(mode == 0) & (water < 0.5)] = 1   # empty -> go refuel
+                if balance:
+                    # pick the truck minimising round-trip refuel time:
+                    #   2*(dist/speed) + (queue ahead)*fill_per_drone + fill_per_drone
+                    speed = DRONE_CELLS_PER_SUB * SUBSTEPS          # cells / tick
+                    fill1 = TANK / TRUCK_DISPENSE_LPM               # ticks to fill one drone
+                    newly = np.where((mode == 1) & (assigned_truck < 0))[0]
+                    if len(newly):
+                        Q = np.bincount(assigned_truck[(mode == 1) & (assigned_truck >= 0)],
+                                        minlength=n_trucks).astype(float)
+                        for i in newly:
+                            cost = 2 * dt_[i] / speed + Q * fill1 + fill1
+                            k = int(cost.argmin()); assigned_truck[i] = k; Q[k] += 1
+                    home_idx = np.where(mode == 1, np.maximum(assigned_truck, 0), dt_.argmin(axis=1))
+                else:
+                    home_idx = dt_.argmin(axis=1)
+                home = trucks[home_idx]
                 # Movement: fighting drones steered by the trained vec policy (if
                 # given) else heuristic toward nearest fire; refuelling drones
                 # always head to their nearest truck (logistics override).
@@ -212,6 +228,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                     reserve[k] -= give
                     if water[i] >= TANK - 1e-6:
                         mode[i] = 0
+                        assigned_truck[i] = -1
             if t >= deploy_delay:
                 diag.append((tick_drops, int((mode == 1).sum()), int((mode == 0).sum())))
                 qa = np.array([int((at & (home_idx == k) & (mode == 1)).sum()) for k in range(n_trucks)])
@@ -232,7 +249,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
               f"refuelling {d[:,1].mean():.0f}, fighting {d[:,2].mean():.0f}; "
               f"drones that EVER dropped: {ever_dropped.sum()}/{N} ({ever_dropped.mean():.0%})")
         print(f"  refuel ceiling = {int(len(trucks)*TRUCK_DISPENSE_LPM/TANK)} drones/min "
-              f"(={len(trucks)}x100 L/min / {TANK:.0f} L)")
+              f"(={len(trucks)}x{TRUCK_DISPENSE_LPM:.0f} L/min / {TANK:.0f} L)")
         if queue_at:
             QA = np.array(queue_at); QG = np.array(queue_assigned)
             print(f"  QUEUE at trucks (drones waiting AT each truck): mean {QA.mean(0).round(0).astype(int)}")
@@ -262,8 +279,11 @@ def render(frames, grid, out, fps, b_final, d_final):
                        label="fighting" if t == 0 else None)
             ax.scatter(pos[~f, 1], pos[~f, 0], s=7, c="deepskyblue", alpha=0.8,
                        label="refuel/return" if t == 0 else None)
-        ax.scatter(trucks[:, 1], trucks[:, 0], s=130, marker="s", c="cyan",
+        ax.scatter(trucks[:, 1], trucks[:, 0], s=150, marker="s", c="cyan",
                    edgecolors="black", linewidths=0.8, label="truck" if t == 0 else None)
+        for j in range(len(trucks)):
+            ax.text(trucks[j, 1], trucks[j, 0], str(j + 1), color="black",
+                    fontsize=7, fontweight="bold", ha="center", va="center")
         ax.set_title(f"Truck-based swarm vs irregular fire   tick {t*2}\n"
                      f"burned now {int((heat>0).sum())}  "
                      f"(no-swarm ends {b_final}, swarm ends {d_final})", fontsize=8)
@@ -285,6 +305,7 @@ def main():
     p.add_argument("--out", default="docs/figures/truck_sim.mp4")
     p.add_argument("--deploy-delay", type=int, default=0, help="ticks before drones launch (mobilization lag)")
     p.add_argument("--policy", default=None, help="path to a trained vec policy to steer fighting drones")
+    p.add_argument("--balance", action="store_true", help="load-balanced truck choice (min refuel round-trip time)")
     p.add_argument("--fps", type=int, default=20)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
@@ -300,7 +321,7 @@ def main():
                                                args.drones_per_truck, args.ticks,
                                                args.seed, record=True,
                                                deploy_delay=args.deploy_delay,
-                                               policy_path=args.policy)
+                                               policy_path=args.policy, balance=args.balance)
     print(f"  trucks placed: {ntr}")
     print(f"  swarm burned:    {d_final} ({d_final/tot:.0%})")
     print(f"  reduction: {b_final - d_final} cells ({(b_final-d_final)/b_final:+.0%})")
