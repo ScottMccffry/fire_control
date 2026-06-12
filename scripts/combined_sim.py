@@ -43,6 +43,10 @@ RETREAT_M = 200.0
 DROP_EFF = 0.7
 LINE_HALF_WIDTH = 1
 LAY_COST = 1.0
+LINE_STRENGTH = 1.0     # retardant level laid per cell (0..1); raises the local
+                        # ignition bar but is NOT a fireproof wall -- a hot
+                        # enough fire can still breach the line
+LINE_KW = 380.0         # extra incoming kW/m^2 a full-strength line demands
 # fire regime (overridable from the CLI)
 WIND = 4.0
 SPREAD = 0.34
@@ -67,6 +71,7 @@ def setup(grid, n_assets, seed):
     sim.fuel_moisture = rng.uniform(MOIST[0], MOIST[1], (grid, grid))
     sim.fuel_load = rng.uniform(0.9, 1.0, (grid, grid))
     sim.base_spread_rate = SPREAD
+    sim.retardant_kw = LINE_KW
     sim.elevation[:] = 100.0
     sim.set_weather(wind_speed=WIND, wind_direction=float(rng.uniform(0, 360)),
                     temperature=36.0, humidity=0.08)
@@ -324,7 +329,7 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
                         continue
                     rr = slice(max(0, r - LINE_HALF_WIDTH), r + LINE_HALF_WIDTH + 1)
                     cc = slice(max(0, c - LINE_HALF_WIDTH), c + LINE_HALF_WIDTH + 1)
-                    sim.fuel_load[rr, cc] = 0.0; sim.fuel_moisture[rr, cc] = 1.0
+                    sim.retardant[rr, cc] = LINE_STRENGTH    # raise the bar, not a wall
                     treated[rr, cc] = True; d_tank[i] -= LAY_COST
             d_at = np.linalg.norm(d_pos - def_trucks[d_homeidx], axis=1) < 1.5
             for k in range(n_def_trucks):
@@ -428,14 +433,22 @@ def main():
     p.add_argument("--canadairs", type=int, default=0,
                    help="number of 70,000 L air tankers loitering over the fire (refuel node + bombing)")
     p.add_argument("--canadair-radius", type=float, default=None, help="Canadair loiter radius (cells)")
+    p.add_argument("--line-strength", type=float, default=None,
+                   help="retardant level 0..1 laid per cell (lower = easier to breach)")
+    p.add_argument("--line-kw", type=float, default=None,
+                   help="extra incoming kW a full line demands (lower = easier to breach)")
     p.add_argument("--out", default="docs/figures/combined.mp4")
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
-    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST
+    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST, LINE_STRENGTH, LINE_KW
     if args.tank:
         TANK = args.tank
         DTANK = args.tank
+    if args.line_strength is not None:
+        LINE_STRENGTH = args.line_strength
+    if args.line_kw is not None:
+        LINE_KW = args.line_kw
     if args.wind is not None:
         WIND = args.wind
     if args.spread is not None:

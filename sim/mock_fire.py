@@ -77,9 +77,16 @@ class MockFireSimulator:
         # Water drop effects tracking
         self.water_effects = np.zeros(grid_size, dtype=float)  # Water suppression map
         self.water_decay_rate = 0.1  # How fast water effects decay per time step
-        
+
+        # Long-term retardant line (0..1 per cell). Raises the LOCAL ignition
+        # threshold by up to `retardant_kw` and slows ignition, so a treated cell
+        # resists fire but is NOT fireproof: a hot enough neighbour can still
+        # breach it. Defaults to 0 everywhere (no effect -> backward compatible).
+        self.retardant = np.zeros(grid_size, dtype=float)
+        self.retardant_kw = 380.0  # extra kW/m^2 of incoming heat needed at R=1
+
         self.logger = logging.getLogger(__name__)
-    
+
     def _generate_terrain(self) -> np.ndarray:
         """Generate realistic terrain elevation."""
         rows, cols = self.grid_size
@@ -197,13 +204,17 @@ class MockFireSimulator:
         slope_factor[:, 0] = slope_factor[:, -1] = 1.0
 
         # 4) Ignition probability for unburned cells with a hot-enough neighbour.
-        candidate = (burned == 0) & (max_adj > self.ignition_threshold)
+        #    Retardant raises the local threshold (needs a hotter neighbour to
+        #    ignite) and damps the probability -- strong but not impassable.
+        eff_threshold = self.ignition_threshold + self.retardant * self.retardant_kw
+        candidate = (burned == 0) & (max_adj > eff_threshold)
         heat_factor = np.minimum(1.0, max_adj / self.max_heat_intensity)
         fuel_factor = self.fuel_load * (1.0 - self.fuel_moisture)
         water_suppression = np.minimum(0.9, self.water_effects / 50.0)
         jitter = 0.8 + 0.4 * np.random.random((H, W))
         prob = (self.base_spread_rate * heat_factor * fuel_factor
-                * wind_factor * slope_factor * (1.0 - water_suppression) * jitter)
+                * wind_factor * slope_factor * (1.0 - water_suppression)
+                * (1.0 - 0.7 * self.retardant) * jitter)
         prob = np.where(candidate, np.clip(prob, 0.0, 1.0), 0.0)
 
         # 5) Stochastic ignition + initial heat for newly burned cells.
@@ -421,6 +432,7 @@ class MockFireSimulator:
         self.burned_area = np.zeros(self.grid_size, dtype=int)
         self.heat_intensity = np.zeros(self.grid_size, dtype=float)
         self.water_effects = np.zeros(self.grid_size, dtype=float)
+        self.retardant = np.zeros(self.grid_size, dtype=float)
         self.fire_history = []
     
     def get_total_burned_area(self) -> float:
