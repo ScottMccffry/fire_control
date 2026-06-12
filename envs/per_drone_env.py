@@ -136,6 +136,7 @@ class PerDroneSwarmVecEnv(VecEnv):
         self.drone_water[:] = self.water_capacity
         self.steps = 0
         self._prev_burned = int(self.sim.burned_area.sum())
+        self._water_dropped = 0.0
         self._ep_returns[:] = 0.0
 
     # ----------------------------------------------------------- observations
@@ -253,6 +254,7 @@ class PerDroneSwarmVecEnv(VecEnv):
                     dropped[i] = 1.0
             self.drone_water[i] = min(self.water_capacity,
                                       self.drone_water[i] + self.water_regen)
+        self._water_dropped += float(dropped.sum()) * self.drop_amount
 
         self.sim.step()
         self.steps += 1
@@ -292,6 +294,7 @@ class PerDroneSwarmVecEnv(VecEnv):
                                        "l": self.steps}
                 infos[i]["burned_cells"] = burned
                 infos[i]["fire_extinguished"] = extinguished
+                infos[i]["water_dropped"] = self._water_dropped
                 if truncated and not extinguished:
                     infos[i]["TimeLimit.truncated"] = True
             self._new_episode()
