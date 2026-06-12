@@ -189,7 +189,10 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                 step = np.zeros((N, 2))
                 m1 = mode == 1
                 dh = home - pos; nh = np.linalg.norm(dh, axis=1, keepdims=True)
-                step = np.where((m1)[:, None], np.where(nh > 1e-6, dh / nh, 0) * DRONE_CELLS_PER_SUB, step)
+                # don't overshoot the truck (step capped at remaining distance) so
+                # returning drones actually land on it and refuel
+                m1_mag = np.minimum(DRONE_CELLS_PER_SUB, nh)
+                step = np.where((m1)[:, None], np.where(nh > 1e-6, dh / nh, 0) * m1_mag, step)
                 m0 = mode == 0
                 if obs_env is not None:
                     obs_env.sim = sim; obs_env.drone_pos = ipos; obs_env.drone_water = water
@@ -230,7 +233,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                         mode[i] = 0
                         assigned_truck[i] = -1
             if t >= deploy_delay:
-                diag.append((tick_drops, int((mode == 1).sum()), int((mode == 0).sum())))
+                diag.append((tick_drops, int((mode == 1).sum()), int((mode == 0).sum()), int((sim.heat_intensity > sim.ignition_threshold*0.3).sum())))
                 qa = np.array([int((at & (home_idx == k) & (mode == 1)).sum()) for k in range(n_trucks)])
                 qg = np.array([int(((home_idx == k) & (mode == 1)).sum()) for k in range(n_trucks)])
                 queue_at.append(qa); queue_assigned.append(qg)
@@ -245,6 +248,10 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
         burned_curve.append(int(sim.burned_area.sum()))
     if use_drones and diag:
         d = np.array(diag, float)
+        print("  TAIL (last 12 ticks)  tick: drops/refuel/fight/ACTIVE_FIRE")
+        for j in range(max(0,len(diag)-12), len(diag)):
+            dd=diag[j]; print(f"    t={j:3d}: {dd[0]:4d} {dd[1]:5d} {dd[2]:4d}  active={dd[3]}")
+        print(f"  final truck reserves (L): {reserve.round(0).astype(int)}")
         print(f"  DIAG: per tick avg -> dropping {d[:,0].mean():.0f}/{N} drones, "
               f"refuelling {d[:,1].mean():.0f}, fighting {d[:,2].mean():.0f}; "
               f"drones that EVER dropped: {ever_dropped.sum()}/{N} ({ever_dropped.mean():.0%})")
