@@ -112,6 +112,8 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
         water = np.full(N, TANK)
         mode = np.zeros(N, dtype=int)               # 0 fight, 1 return/refuel
         reserve = np.full(n_trucks, TRUCK_RESERVE)
+        ever_dropped = np.zeros(N, bool)
+        diag = []
 
     obs_env, policy_model = None, None
     if use_drones and policy_path:
@@ -148,6 +150,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
             continue
 
         if use_drones:
+            tick_drops = 0
             for _ in range(SUBSTEPS):
                 ipos = np.clip(np.round(pos).astype(int), 0, grid - 1)
                 # nearest active fire per drone
@@ -182,7 +185,8 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                 if ftree is not None:
                     thr = sim.ignition_threshold * 0.3
                     on = (mode == 0) & (sim.heat_intensity[ipos[:, 0], ipos[:, 1]] > thr) & (water > 0)
-                    for i in np.where(on)[0]:
+                    didx = np.where(on)[0]; tick_drops += len(didx); ever_dropped[didx] = True
+                    for i in didx:
                         amt = min(water[i], DROP_PER_SUB)
                         sim.apply_water_drop(int(ipos[i, 0]), int(ipos[i, 1]), amt)
                         water[i] -= amt
@@ -201,6 +205,8 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                     reserve[k] -= give
                     if water[i] >= TANK - 1e-6:
                         mode[i] = 0
+            if t >= deploy_delay:
+                diag.append((tick_drops, int((mode == 1).sum()), int((mode == 0).sum())))
             if record and t % 2 == 0:
                 st = np.where(mode == 1, 1, 0)  # 0 fight, 1 refuel/return
                 frames.append((sim.heat_intensity.copy(), pos.copy(), st,
@@ -210,6 +216,13 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
 
         sim.step()
         burned_curve.append(int(sim.burned_area.sum()))
+    if use_drones and diag:
+        d = np.array(diag, float)
+        print(f"  DIAG: per tick avg -> dropping {d[:,0].mean():.0f}/{N} drones, "
+              f"refuelling {d[:,1].mean():.0f}, fighting {d[:,2].mean():.0f}; "
+              f"drones that EVER dropped: {ever_dropped.sum()}/{N} ({ever_dropped.mean():.0%})")
+        print(f"  refuel ceiling = {int(len(trucks)*TRUCK_DISPENSE_LPM/TANK)} drones/min "
+              f"(={len(trucks)}x100 L/min / {TANK:.0f} L)")
     return int(sim.burned_area.sum()), burned_curve, frames, water_used, n_trucks
 
 
