@@ -60,6 +60,17 @@ DIFFICULTY_PRESETS = {
         wind_speed=14.0, fuel_moisture_range=(0.06, 0.18),
         fuel_load_range=(0.75, 1.0), base_spread_rate=0.18,
     ),
+    # Fragmented "many fronts": 4 simultaneous ignitions on the macro grid with
+    # 40 drones. Nearest-fire greedy COLLAPSES here (~40% burned -- it cannot
+    # allocate a fixed fleet across several fronts), yet the fire is suppressible
+    # with good allocation (60 drones -> ~2%). This is the regime that matches
+    # the macro failure mode: drones chase the nearest fire while other fronts
+    # run away. The learned policy must split the fleet across fronts by threat.
+    "multifront": dict(
+        grid_size=60, n_drones=40, max_steps=180, n_ignitions=4,
+        wind_speed=14.0, fuel_moisture_range=(0.06, 0.18),
+        fuel_load_range=(0.75, 1.0), base_spread_rate=0.18,
+    ),
     # Large WRF-SFIRE-scale-ish grid. Under-resourced on drones relative to the
     # grid (genuinely hard); used to probe how much learning happens quickly.
     "large": dict(
