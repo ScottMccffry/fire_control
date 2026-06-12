@@ -45,17 +45,23 @@ TRUCK_DISPENSE_LPM = 200.0     # litres/min a truck hands to drones (consumption
 TRUCK_TOPUP_LPM = 100.0        # litres/min the supply line refills the truck tank
 SAFE_M = 1000.0                # min truck distance from fire front at placement
 RETREAT_M = 200.0             # fire-front distance that triggers a truck retreat
+DROP_EFF = 1.0                 # effective fraction of each litre (forest fuel <1: needs more water)
 
 
-def make_irregular_fire(grid, circ_radius_m, seed):
+def make_irregular_fire(grid, circ_radius_m, seed, forest=False):
     rng = np.random.default_rng(seed)
     np.random.seed(seed)
     sim = MockFireSimulator(grid_size=(grid, grid), cell_size_meters=CELL_M)
     sim.set_weather(wind_speed=5.0, wind_direction=float(rng.uniform(0, 360)),
                     temperature=32.0, humidity=0.15)
-    sim.fuel_moisture = rng.uniform(0.06, 0.16, (grid, grid))
-    sim.fuel_load = rng.uniform(0.8, 1.0, (grid, grid))
-    sim.base_spread_rate = 0.16
+    if forest:   # heavier, drier, faster -> far more intense than grass
+        sim.fuel_moisture = rng.uniform(0.03, 0.08, (grid, grid))
+        sim.fuel_load = rng.uniform(0.92, 1.0, (grid, grid))
+        sim.base_spread_rate = 0.22
+    else:
+        sim.fuel_moisture = rng.uniform(0.06, 0.16, (grid, grid))
+        sim.fuel_load = rng.uniform(0.8, 1.0, (grid, grid))
+        sim.base_spread_rate = 0.16
     R = circ_radius_m / CELL_M
     cy = grid / 2 + rng.uniform(-grid * 0.1, grid * 0.1)
     cx = grid / 2 + rng.uniform(-grid * 0.1, grid * 0.1)
@@ -99,8 +105,8 @@ def place_trucks(grid, n, fire_xy, seed):
     return np.array(trucks)
 
 
-def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0, policy_path=None, balance=False):
-    sim, _ = make_irregular_fire(grid, 500.0, seed)
+def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0, policy_path=None, balance=False, forest=False):
+    sim, _ = make_irregular_fire(grid, 500.0, seed, forest=forest)
     fire_xy = active_cells(sim)
     trucks = place_trucks(grid, n_trucks, fire_xy, seed)
     n_trucks = len(trucks)
@@ -214,7 +220,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                         for b in (ang/(2*np.pi)*8).astype(int) % 8: drop_oct[b]+=1
                     for i in didx:
                         amt = min(water[i], DROP_PER_SUB)
-                        sim.apply_water_drop(int(ipos[i, 0]), int(ipos[i, 1]), amt)
+                        sim.apply_water_drop(int(ipos[i, 0]), int(ipos[i, 1]), amt * DROP_EFF)
                         water[i] -= amt
                         water_used += amt
             # --- refuel at trucks (rate + reserve limited), once per tick ---
@@ -313,14 +319,20 @@ def main():
     p.add_argument("--deploy-delay", type=int, default=0, help="ticks before drones launch (mobilization lag)")
     p.add_argument("--policy", default=None, help="path to a trained vec policy to steer fighting drones")
     p.add_argument("--balance", action="store_true", help="load-balanced truck choice (min refuel round-trip time)")
+    p.add_argument("--forest", action="store_true", help="forest-fire fuel (hotter/faster, water less effective)")
+    p.add_argument("--tank", type=float, default=None, help="drone water capacity L (default 10)")
+    p.add_argument("--drop-eff", type=float, default=None, help="effective fraction per litre (forest default 0.2)")
     p.add_argument("--fps", type=int, default=20)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
+    global TANK, DROP_EFF
+    if args.tank: TANK = args.tank
+    DROP_EFF = args.drop_eff if args.drop_eff is not None else (0.2 if args.forest else 1.0)
     tot = args.grid * args.grid
 
     print("baseline (no swarm) ...")
     b_final, b_curve, _, _, _ = run(args.grid, args.trucks, args.drones_per_truck,
-                                    args.ticks, args.seed, use_drones=False)
+                                    args.ticks, args.seed, use_drones=False, forest=args.forest)
     print(f"  baseline burned: {b_final} ({b_final/tot:.0%} of {args.grid*25/1000:.0f}km grid)")
 
     print(f"swarm ({args.trucks} trucks x {args.drones_per_truck} drones) ...")
@@ -328,7 +340,7 @@ def main():
                                                args.drones_per_truck, args.ticks,
                                                args.seed, record=True,
                                                deploy_delay=args.deploy_delay,
-                                               policy_path=args.policy, balance=args.balance)
+                                               policy_path=args.policy, balance=args.balance, forest=args.forest)
     print(f"  trucks placed: {ntr}")
     print(f"  swarm burned:    {d_final} ({d_final/tot:.0%})")
     print(f"  reduction: {b_final - d_final} cells ({(b_final-d_final)/b_final:+.0%})")
