@@ -44,6 +44,27 @@ DISPENSE_LPM = 220.0           # handed to drones per tick while on station
 REFUEL_R = 2.0
 
 
+def adaptive_lattice(center, radius, wind_dir, comp, grid):
+    """Internal compartment lattice ROTATED to the wind/spread axis (clipped to
+    the containment disk). Same density as a fixed square grid, but its lines run
+    ALONG and ACROSS the spread direction -> the division pattern rotates with
+    each fire's wind instead of always being axis-aligned. The robust circular
+    perimeter (built separately) handles enclosure."""
+    wd = np.radians(wind_dir)
+    u = np.array([np.sin(wd), np.cos(wd)])         # downwind / spread axis
+    v = np.array([-u[1], u[0]])                     # cross-spread axis
+    pts = []
+    for uu in np.arange(-radius + comp, radius, comp):     # lines across spread
+        half = np.sqrt(max(radius ** 2 - uu ** 2, 0))
+        vv = np.arange(-half, half, 1.8)
+        pts.append(center + uu * u + np.outer(vv, v))
+    for vl in np.arange(-radius + comp, radius, comp):     # lines along spread
+        half = np.sqrt(max(radius ** 2 - vl ** 2, 0))
+        uu = np.arange(-half, half, 1.8)
+        pts.append(center + np.outer(uu, u) + vl * v)
+    return np.clip(np.vstack(pts), 1, grid - 2)
+
+
 def make_terrain(grid, rng, relief=180.0):
     """Hills/valleys; amplified so slope actually drives spread."""
     x = np.linspace(0, 4 * np.pi, grid)
@@ -163,13 +184,15 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
         if use_fleet and not deployed and t >= deploy_delay:
             if len(fire_xy):
                 cen = fire_xy.mean(0)
-                rad = float(np.linalg.norm(fire_xy - cen, axis=1).max()) + 10.0
+                rad = float(np.linalg.norm(fire_xy - cen, axis=1).max()) + 14.0
             else:
                 cen, rad = foyer, perim_r
             rad = float(np.clip(rad, 20.0, 0.46 * grid))
+            # robust circular perimeter (encloses) + internal lattice rotated to
+            # the wind/spread axis (adapts the division pattern to each fire)
             targets = [C.asset_rings(assets, foyer, grid),
                        C.containment_perimeter(cen, grid, rad),
-                       C.compartment_lines(cen, rad, comp, grid)]
+                       adaptive_lattice(cen, rad, sim.wind_direction, comp, grid)]
             rings = np.vstack(targets)
             d_tgt = rings[np.arange(Nd) % len(rings)]
             deployed = True
