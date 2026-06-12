@@ -320,10 +320,16 @@ def main():
     p.add_argument("--assets", type=int, default=6)
     p.add_argument("--ticks", type=int, default=320)
     p.add_argument("--seed", type=int, default=5)
+    p.add_argument("--tank", type=float, default=None,
+                   help="per-drone payload in L (sets attack water + defender retardant)")
     p.add_argument("--out", default="docs/figures/combined.mp4")
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
+    global TANK, DTANK
+    if args.tank:
+        TANK = args.tank
+        DTANK = args.tank
     tot = args.grid ** 2
 
     print("baseline (no fleet) ...")
