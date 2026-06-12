@@ -114,6 +114,7 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
         reserve = np.full(n_trucks, TRUCK_RESERVE)
         ever_dropped = np.zeros(N, bool)
         diag = []
+        drop_oct = np.zeros(8)
 
     obs_env, policy_model = None, None
     if use_drones and policy_path:
@@ -186,6 +187,10 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                     thr = sim.ignition_threshold * 0.3
                     on = (mode == 0) & (sim.heat_intensity[ipos[:, 0], ipos[:, 1]] > thr) & (water > 0)
                     didx = np.where(on)[0]; tick_drops += len(didx); ever_dropped[didx] = True
+                    if len(didx) and len(fire_xy):
+                        fc = fire_xy.mean(0)
+                        ang = (np.arctan2(ipos[didx,0]-fc[0], ipos[didx,1]-fc[1]) + 2*np.pi) % (2*np.pi)
+                        for b in (ang/(2*np.pi)*8).astype(int) % 8: drop_oct[b]+=1
                     for i in didx:
                         amt = min(water[i], DROP_PER_SUB)
                         sim.apply_water_drop(int(ipos[i, 0]), int(ipos[i, 1]), amt)
@@ -223,6 +228,10 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
               f"drones that EVER dropped: {ever_dropped.sum()}/{N} ({ever_dropped.mean():.0%})")
         print(f"  refuel ceiling = {int(len(trucks)*TRUCK_DISPENSE_LPM/TANK)} drones/min "
               f"(={len(trucks)}x100 L/min / {TANK:.0f} L)")
+        if drop_oct.sum():
+            pct = (drop_oct/drop_oct.sum()*100).round(0).astype(int)
+            print(f"  DROP coverage by octant around fire (uniform=12.5%%): {list(pct)}  "
+                  f"-> top octant {pct.max()}%%, octants with <5%%: {(pct<5).sum()}/8")
     return int(sim.burned_area.sum()), burned_curve, frames, water_used, n_trucks
 
 
