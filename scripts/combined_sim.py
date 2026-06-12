@@ -48,6 +48,16 @@ WIND = 4.0
 SPREAD = 0.34
 FOYER_R = 11.0
 MOIST = (0.05, 0.12)
+# Canadair-style air tanker: loiters over the fire, drops water, and serves as a
+# moving aerial refuel node for the drones (cuts their refuel round-trip).
+CANADAIR_TANK = 70000.0          # litres
+CANADAIR_DISPENSE_LPM = 3000.0   # litres/min handed to drones (serves a crowd)
+CANADAIR_DROP_LPM = 400.0        # its own water bombing per tick
+CANADAIR_SPEED = 5.0             # cells/tick loiter (slow enough drones catch it)
+CANADAIR_SCOOP_LPM = 5000.0      # refill rate while scooping at the lake (edge)
+CANADAIR_LOW = 8000.0            # tank level that triggers a scoop run
+REFUEL_R = 2.5                   # drones refuel within this radius of a ground truck
+CAN_REFUEL_R = 7.0               # larger aerial-refuel zone under a moving tanker
 
 
 def setup(grid, n_assets, seed):
@@ -138,7 +148,8 @@ def place_trucks(grid, n, foyer, seed):
 
 
 def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
-        ticks, seed, use_fleet=True, record=False, defense="assets", perim_r=None):
+        ticks, seed, use_fleet=True, record=False, defense="assets", perim_r=None,
+        n_canadair=0, canadair_r=None):
     sim, foyer, assets = setup(grid, n_assets, seed)
     amask = asset_mask(assets, grid)
     na_cells = int(amask.sum())
@@ -158,6 +169,17 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
         a_water = np.full(Na, TANK)
         a_mode = np.zeros(Na, int)            # 0 fight, 1 refuel
         a_reserve = np.full(n_attack_trucks, TRUCK_RESERVE)
+        # Canadair air tankers: loiter on a circle near the FRONT (not the
+        # centre -- a central refuel node sucks drones inward off the front and
+        # bombs already-burned cells). At the front it tops up drones where they
+        # fight and water-bombs the leading edge.
+        clr = canadair_r if canadair_r else 0.30 * grid
+        can_ang = np.linspace(0, 2 * np.pi, n_canadair, endpoint=False) if n_canadair else np.zeros(0)
+        can_pos = foyer + clr * np.stack([np.sin(can_ang), np.cos(can_ang)], 1) if n_canadair \
+            else np.zeros((0, 2))
+        can_tank = np.full(n_canadair, CANADAIR_TANK)
+        can_mode = np.zeros(n_canadair, int)   # 0 loiter, 1 scooping
+        can_omega = CANADAIR_SPEED / max(clr, 1.0)   # rad/tick along the loiter
         # defender drones: targets depend on the defense doctrine
         targets = []
         if defense in ("assets", "both"):
@@ -201,17 +223,47 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
         if use_fleet:
             a_reserve = np.minimum(TRUCK_RESERVE, a_reserve + TRUCK_TOPUP_LPM)
             d_reserve = np.minimum(TRUCK_RESERVE, d_reserve + TRUCK_TOPUP_LPM)
+
+            # --- Canadair tankers: loiter, bomb, scoop-refill ---
+            for ci in range(n_canadair):
+                if can_mode[ci] == 0:                    # loiter on the circle
+                    can_ang[ci] += can_omega
+                    can_pos[ci] = foyer + clr * np.array([np.sin(can_ang[ci]),
+                                                          np.cos(can_ang[ci])])
+                    # water bomb the fire under it
+                    if ftree is not None and can_tank[ci] > 0:
+                        r, c = np.round(can_pos[ci]).astype(int)
+                        if sim.heat_intensity[max(0, r-6):r+7, max(0, c-6):c+7].max() > thr:
+                            sim.apply_water_drop(int(r), int(c), CANADAIR_DROP_LPM * DROP_EFF)
+                            can_tank[ci] -= CANADAIR_DROP_LPM
+                    if can_tank[ci] < CANADAIR_LOW:
+                        can_mode[ci] = 1                 # go scoop
+                else:                                    # fly to nearest edge & refill
+                    edge = can_pos[ci].copy()
+                    edge[0] = 0 if can_pos[ci][0] < grid / 2 else grid - 1
+                    d = edge - can_pos[ci]; n = np.linalg.norm(d) + 1e-6
+                    can_pos[ci] = can_pos[ci] + d / n * min(CANADAIR_SPEED, n)
+                    if can_pos[ci][0] <= 1 or can_pos[ci][0] >= grid - 2:
+                        can_tank[ci] = min(CANADAIR_TANK, can_tank[ci] + CANADAIR_SCOOP_LPM)
+                        if can_tank[ci] >= CANADAIR_TANK - 1e-6:
+                            can_mode[ci] = 0             # back to loiter
+
             # attack: nearest active fire per drone (once per tick)
             if ftree is not None:
                 _, idx = ftree.query(a_pos); a_fire = fire_xy[idx]
             else:
                 a_fire = a_pos
+            # Drones still home to their nearest TRUCK for refuel (keeps the
+            # even spatial coverage that makes the attack work -- targeting the
+            # moving tanker instead makes drones cluster/chase and wrecks
+            # coverage). The Canadair refuels OPPORTUNISTICALLY: any drone that
+            # passes within its zone gets topped up for free (below).
             a_dt = np.linalg.norm(a_pos[:, None, :] - atk_trucks[None, :, :], axis=2)
             a_homeidx = a_dt.argmin(axis=1)
+            home = atk_trucks[a_homeidx]
             for _ in range(SUBSTEPS):
                 a_mode[(a_mode == 0) & (a_water < 0.5)] = 1
                 # move
-                home = atk_trucks[a_homeidx]
                 step = np.zeros((Na, 2))
                 m1 = a_mode == 1
                 dh = home - a_pos; nh = np.linalg.norm(dh, axis=1, keepdims=True)
@@ -226,8 +278,8 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
                     amt = min(a_water[i], DROP_PER_SUB)
                     sim.apply_water_drop(int(ip[i, 0]), int(ip[i, 1]), amt * DROP_EFF)
                     a_water[i] -= amt
-            # attack refuel
-            at = np.linalg.norm(a_pos - atk_trucks[a_homeidx], axis=1) < 1.5
+            # attack refuel at ground trucks
+            at = np.linalg.norm(a_pos - home, axis=1) < REFUEL_R
             for k in range(n_attack_trucks):
                 here = np.where(at & (a_homeidx == k) & (a_water < TANK) & (a_mode == 1))[0]
                 budget = min(TRUCK_DISPENSE_LPM, a_reserve[k])
@@ -237,6 +289,21 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
                     give = min(TANK - a_water[i], budget)
                     a_water[i] += give; budget -= give; a_reserve[k] -= give
                     if a_water[i] >= TANK - 1e-6:
+                        a_mode[i] = 0
+            # opportunistic aerial refuel: a loitering tanker tops up ANY nearby
+            # drone (fighting or returning) without it diverting off-task.
+            for ci in np.where(can_mode == 0)[0]:
+                budget = min(CANADAIR_DISPENSE_LPM, can_tank[ci])
+                if budget <= 0:
+                    continue
+                near = np.where((np.linalg.norm(a_pos - can_pos[ci], axis=1) < CAN_REFUEL_R)
+                                & (a_water < TANK))[0]
+                for i in near:
+                    if budget <= 0:
+                        break
+                    give = min(TANK - a_water[i], budget)
+                    a_water[i] += give; budget -= give; can_tank[ci] -= give
+                    if a_water[i] >= TANK - 1e-6 and a_mode[i] == 1:
                         a_mode[i] = 0
 
             # defenders
@@ -277,7 +344,8 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
             if use_fleet:
                 snap.update(a_pos=a_pos.copy(), a_mode=a_mode.copy(),
                             d_pos=d_pos.copy(), d_mode=d_mode.copy(),
-                            atk=atk_trucks.copy(), dft=def_trucks.copy())
+                            atk=atk_trucks.copy(), dft=def_trucks.copy(),
+                            can=can_pos.copy(), can_tank=can_tank.copy())
             frames.append(snap)
         sim.step()
 
@@ -324,6 +392,11 @@ def render(frames, grid, assets, out, fps, status):
             for j, tr in enumerate(s["dft"]):
                 ax.scatter(tr[1], tr[0], s=90, marker="s", c="blue", edgecolors="k", linewidths=0.6)
                 ax.text(tr[1], tr[0], f"D{j+1}", color="white", fontsize=6, ha="center", va="center")
+            for j, cp in enumerate(s.get("can", [])):
+                ax.scatter(cp[1], cp[0], s=170, marker="P", c="cyan", edgecolors="k",
+                           linewidths=0.8, label="Canadair 70kL" if (t == 0 and j == 0) else None)
+                ax.text(cp[1], cp[0] + 4, f"{s['can_tank'][j]/1000:.0f}kL", color="cyan",
+                        fontsize=6, ha="center", fontweight="bold")
         ax.set_title(f"Combined attack + defense   tick {t*2}\n{status}", fontsize=8)
         ax.set_xticks([]); ax.set_yticks([])
         if t == 0:
@@ -352,6 +425,9 @@ def main():
     p.add_argument("--defense", choices=["assets", "perimeter", "both"], default="assets",
                    help="defender doctrine: per-asset rings, one big containment perimeter, or both")
     p.add_argument("--perim", type=float, default=None, help="perimeter radius in cells")
+    p.add_argument("--canadairs", type=int, default=0,
+                   help="number of 70,000 L air tankers loitering over the fire (refuel node + bombing)")
+    p.add_argument("--canadair-radius", type=float, default=None, help="Canadair loiter radius (cells)")
     p.add_argument("--out", default="docs/figures/combined.mp4")
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
@@ -376,11 +452,13 @@ def main():
                              args.ticks, args.seed, use_fleet=False)
     print(f"  assets burned {ab0}/{na} ({ab0/max(na,1):.0%})  total {tb0} ({tb0/tot:.0%})")
 
-    print(f"combined fleet (8 attack + 2 defender, defense={args.defense}) ...")
+    print(f"combined fleet ({args.attack_trucks} attack + {args.defender_trucks} defender "
+          f"+ {args.canadairs} Canadair, defense={args.defense}) ...")
     ab1, na, tb1, frames, assets = run(args.grid, args.attack_trucks, args.defender_trucks,
                                        args.dpt_attack, args.dpt_def, args.assets,
                                        args.ticks, args.seed, use_fleet=True, record=True,
-                                       defense=args.defense, perim_r=args.perim)
+                                       defense=args.defense, perim_r=args.perim,
+                                       n_canadair=args.canadairs, canadair_r=args.canadair_radius)
     print(f"  assets burned {ab1}/{na} ({ab1/max(na,1):.0%})  total {tb1} ({tb1/tot:.0%})")
     print(f"  total-burn reduction {(tb0-tb1)/max(tb0,1):+.0%}")
     status = (f"baseline: {ab0}/{na} assets lost, {tb0/tot:.0%} grid  |  "
