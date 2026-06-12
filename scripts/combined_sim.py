@@ -52,6 +52,8 @@ WIND = 4.0
 SPREAD = 0.34
 FOYER_R = 11.0
 MOIST = (0.05, 0.12)
+PEAK_KW = 1000.0        # peak fire intensity (max_heat_intensity); higher = hotter
+                        # fuel/crown fire that can breach an otherwise-holding line
 # Canadair-style air tanker: loiters over the fire, drops water, and serves as a
 # moving aerial refuel node for the drones (cuts their refuel round-trip).
 CANADAIR_TANK = 70000.0          # litres
@@ -72,6 +74,7 @@ def setup(grid, n_assets, seed):
     sim.fuel_load = rng.uniform(0.9, 1.0, (grid, grid))
     sim.base_spread_rate = SPREAD
     sim.retardant_kw = LINE_KW
+    sim.max_heat_intensity = PEAK_KW
     sim.elevation[:] = 100.0
     sim.set_weather(wind_speed=WIND, wind_direction=float(rng.uniform(0, 360)),
                     temperature=36.0, humidity=0.08)
@@ -437,11 +440,15 @@ def main():
                    help="retardant level 0..1 laid per cell (lower = easier to breach)")
     p.add_argument("--line-kw", type=float, default=None,
                    help="extra incoming kW a full line demands (lower = easier to breach)")
+    p.add_argument("--peak-kw", type=float, default=None,
+                   help="peak fire intensity (hotter fuel/crown fire breaches a holding line)")
     p.add_argument("--out", default="docs/figures/combined.mp4")
     p.add_argument("--fps", type=int, default=18)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
-    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST, LINE_STRENGTH, LINE_KW
+    global TANK, DTANK, WIND, SPREAD, FOYER_R, MOIST, LINE_STRENGTH, LINE_KW, PEAK_KW
+    if args.peak_kw is not None:
+        PEAK_KW = args.peak_kw
     if args.tank:
         TANK = args.tank
         DTANK = args.tank
