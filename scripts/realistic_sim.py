@@ -65,6 +65,25 @@ def adaptive_lattice(center, radius, wind_dir, comp, grid):
     return np.clip(np.vstack(pts), 1, grid - 2)
 
 
+def spider_web(center, r_in, r_out, grid, ring_gap=16.0, n_spokes=16):
+    """Concentric rings + radial spokes (a spider web) from the outer perimeter
+    inward to just ahead of the fire front -- DEFENSE IN DEPTH: each ring is a
+    fallback line, so if the fire breaches one the next ring out still catches
+    it; the spokes stop the fire running laterally within an annulus."""
+    pts = []
+    radii = np.arange(r_in, r_out + 1e-6, ring_gap)
+    for R in radii:                                   # concentric rings
+        n = max(24, int(2 * np.pi * R / 1.8))
+        th = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        pts.append(center + R * np.stack([np.sin(th), np.cos(th)], 1))
+    for k in range(n_spokes):                         # radial spokes
+        ang = 2 * np.pi * k / n_spokes
+        rr = np.arange(r_in, r_out, 1.8)
+        d = np.array([np.sin(ang), np.cos(ang)])
+        pts.append(center + np.outer(rr, d))
+    return np.clip(np.vstack(pts), 1, grid - 2)
+
+
 def make_terrain(grid, rng, relief=180.0):
     """Hills/valleys; amplified so slope actually drives spread."""
     x = np.linspace(0, 4 * np.pi, grid)
@@ -137,7 +156,7 @@ def hillshade(ele, az=315.0, alt=45.0):
 
 
 def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
-        use_fleet=True, record=False, deploy_delay=0):
+        use_fleet=True, record=False, deploy_delay=0, pattern="web"):
     sim, foyer, assets = setup(grid, n_assets, n_fires, seed)
     am = amask(assets, grid)
     na = int(am.sum())
@@ -188,12 +207,18 @@ def run(grid, n_atk, n_def, dpt_a, dpt_d, n_assets, n_fires, comp, ticks, seed,
             else:
                 cen, rad = foyer, perim_r
             rad = float(np.clip(rad, 20.0, 0.46 * grid))
-            # robust circular perimeter (encloses) + internal lattice rotated to
-            # the wind/spread axis (adapts the division pattern to each fire)
-            targets = [C.asset_rings(assets, foyer, grid),
-                       C.containment_perimeter(cen, grid, rad),
-                       adaptive_lattice(cen, rad, sim.wind_direction, comp, grid)]
-            rings = np.vstack(targets)
+            if pattern == "web":
+                # spider web: rings (defense in depth) + spokes, from the fire
+                # front (r_in) out to the perimeter (r_out)
+                r_in = float(np.clip(rad - 4, 12.0, rad))
+                r_out = float(np.clip(rad + 0.18 * grid, rad + comp, 0.47 * grid))
+                # finer rings = deeper defense in depth (many closely-spaced
+                # fallback lines), which is the whole point of the web
+                lattice = spider_web(cen, r_in, r_out, grid, ring_gap=12.0, n_spokes=20)
+            else:
+                lattice = np.vstack([C.containment_perimeter(cen, grid, rad),
+                                     adaptive_lattice(cen, rad, sim.wind_direction, comp, grid)])
+            rings = np.vstack([C.asset_rings(assets, foyer, grid), lattice])
             d_tgt = rings[np.arange(Nd) % len(rings)]
             deployed = True
 
@@ -374,6 +399,8 @@ def main():
     p.add_argument("--ticks", type=int, default=300)
     p.add_argument("--deploy-delay", type=int, default=0,
                    help="minutes the fire grows before the fleet deploys (1 tick = 1 min)")
+    p.add_argument("--pattern", choices=["web", "grid"], default="web",
+                   help="containment geometry: spider web (rings+spokes, defense in depth) or rotated grid")
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--out", default="docs/figures/realistic.mp4")
     p.add_argument("--fps", type=int, default=18)
@@ -392,7 +419,8 @@ def main():
     ab, na, tb, frames, assets, ele, depots, na_t = run(
         args.grid, args.attack_trucks, args.defender_trucks, args.dpt_attack,
         args.dpt_def, args.assets, args.fires, args.compartment, args.ticks,
-        args.seed, use_fleet=True, record=True, deploy_delay=args.deploy_delay)
+        args.seed, use_fleet=True, record=True, deploy_delay=args.deploy_delay,
+        pattern=args.pattern)
     print(f"  assets {ab}/{na} ({ab/max(na,1):.0%})  total {tb} ({tb/tot:.0%})  "
           f"reduction {(tb0-tb)/max(tb0,1):+.0%}")
     status = (f"deploy delay {args.deploy_delay} min  |  baseline {tb0/tot:.0%} grid  |  "
