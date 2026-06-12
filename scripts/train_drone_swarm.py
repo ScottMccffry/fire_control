@@ -51,6 +51,15 @@ DIFFICULTY_PRESETS = {
         wind_speed=12.0, fuel_moisture_range=(0.05, 0.18),
         fuel_load_range=(0.75, 1.0), base_spread_rate=0.20,
     ),
+    # Macro "runaway front": big grid, single ignition, strong wind, only 24
+    # drones. The fire outruns a clustered fleet (random burns ~85%) but is
+    # very suppressible if you intercept the front (greedy ~20%) -> large
+    # headroom for learning a front-aware policy, unlike the saturated `hard`.
+    "front": dict(
+        grid_size=60, n_drones=24, max_steps=180, n_ignitions=1,
+        wind_speed=14.0, fuel_moisture_range=(0.06, 0.18),
+        fuel_load_range=(0.75, 1.0), base_spread_rate=0.18,
+    ),
     # Large WRF-SFIRE-scale-ish grid. Under-resourced on drones relative to the
     # grid (genuinely hard); used to probe how much learning happens quickly.
     "large": dict(
