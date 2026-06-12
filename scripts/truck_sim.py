@@ -98,7 +98,7 @@ def place_trucks(grid, n, fire_xy, seed):
     return np.array(trucks)
 
 
-def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0):
+def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_delay=0, policy_path=None):
     sim, _ = make_irregular_fire(grid, 500.0, seed)
     fire_xy = active_cells(sim)
     trucks = place_trucks(grid, n_trucks, fire_xy, seed)
@@ -112,6 +112,13 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
         water = np.full(N, TANK)
         mode = np.zeros(N, dtype=int)               # 0 fight, 1 return/refuel
         reserve = np.full(n_trucks, TRUCK_RESERVE)
+
+    obs_env, policy_model = None, None
+    if use_drones and policy_path:
+        from stable_baselines3 import PPO
+        from envs.per_drone_env import PerDroneSwarmVecEnv
+        policy_model = PPO.load(policy_path)
+        obs_env = PerDroneSwarmVecEnv(grid_size=grid, n_drones=N, continuous=True)
 
     frames, burned_curve, water_used = [], [], 0.0
     retreat = RETREAT_M / CELL_M
@@ -154,11 +161,22 @@ def run(grid, n_trucks, dpt, ticks, seed, record=False, use_drones=True, deploy_
                 home_idx = dt_.argmin(axis=1)
                 home = trucks[home_idx]
                 mode[(mode == 0) & (water < 0.5)] = 1   # empty -> go refuel
-                tgt = np.where((mode == 0)[:, None], nearest_fire, home)
-                d = tgt - pos
-                dist = np.linalg.norm(d, axis=1, keepdims=True)
-                pos = np.clip(pos + np.where(dist > 1e-6, d / dist, 0) * DRONE_CELLS_PER_SUB,
-                              0, grid - 1)
+                # Movement: fighting drones steered by the trained vec policy (if
+                # given) else heuristic toward nearest fire; refuelling drones
+                # always head to their nearest truck (logistics override).
+                step = np.zeros((N, 2))
+                m1 = mode == 1
+                dh = home - pos; nh = np.linalg.norm(dh, axis=1, keepdims=True)
+                step = np.where((m1)[:, None], np.where(nh > 1e-6, dh / nh, 0) * DRONE_CELLS_PER_SUB, step)
+                m0 = mode == 0
+                if obs_env is not None:
+                    obs_env.sim = sim; obs_env.drone_pos = ipos; obs_env.drone_water = water
+                    act, _ = policy_model.predict(obs_env._build_obs(), deterministic=True)
+                    step = np.where(m0[:, None], np.clip(act, -1, 1) * DRONE_CELLS_PER_SUB, step)
+                else:
+                    df = nearest_fire - pos; nf = np.linalg.norm(df, axis=1, keepdims=True)
+                    step = np.where(m0[:, None], np.where(nf > 1e-6, df / nf, 0) * DRONE_CELLS_PER_SUB, step)
+                pos = np.clip(pos + step, 0, grid - 1)
                 ipos = np.clip(np.round(pos).astype(int), 0, grid - 1)
                 # drops on ACTIVE fire only
                 if ftree is not None:
@@ -234,6 +252,7 @@ def main():
     p.add_argument("--seed", type=int, default=3)
     p.add_argument("--out", default="docs/figures/truck_sim.mp4")
     p.add_argument("--deploy-delay", type=int, default=0, help="ticks before drones launch (mobilization lag)")
+    p.add_argument("--policy", default=None, help="path to a trained vec policy to steer fighting drones")
     p.add_argument("--fps", type=int, default=20)
     args = p.parse_args()
     logging.disable(logging.CRITICAL)
@@ -248,7 +267,8 @@ def main():
     d_final, d_curve, frames, water, ntr = run(args.grid, args.trucks,
                                                args.drones_per_truck, args.ticks,
                                                args.seed, record=True,
-                                               deploy_delay=args.deploy_delay)
+                                               deploy_delay=args.deploy_delay,
+                                               policy_path=args.policy)
     print(f"  trucks placed: {ntr}")
     print(f"  swarm burned:    {d_final} ({d_final/tot:.0%})")
     print(f"  reduction: {b_final - d_final} cells ({(b_final-d_final)/b_final:+.0%})")
