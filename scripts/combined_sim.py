@@ -121,21 +121,19 @@ def containment_perimeter(foyer, grid, radius):
 
 
 def place_trucks(grid, n, foyer, seed):
+    """Place n trucks evenly spaced by ANGLE around the foyer (with small jitter)
+    so they surround the fire -- guarantees all n are placed and spreads launch
+    points around the perimeter (more trucks -> faster all-round line closure)."""
+    if n <= 0:
+        return np.zeros((0, 2))
     rng = np.random.default_rng(seed + 1)
-    safe = SAFE_M / CELL_M
-    trucks, tries = [], 0
-    while len(trucks) < n and tries < 5000:
-        tries += 1
-        ang = rng.uniform(0, 2 * np.pi)
-        rad = rng.uniform(0.30, 0.46) * grid
+    base = rng.uniform(0, 2 * np.pi)
+    trucks = []
+    for k in range(n):
+        ang = base + 2 * np.pi * k / n + rng.uniform(-0.12, 0.12)
+        rad = rng.uniform(0.34, 0.46) * grid
         p = foyer + rad * np.array([np.sin(ang), np.cos(ang)])
-        if not (2 < p[0] < grid - 2 and 2 < p[1] < grid - 2):
-            continue
-        if np.linalg.norm(p - foyer) < safe:
-            continue
-        if trucks and min(np.linalg.norm(p - np.array(trucks), axis=1)) < grid * 0.07:
-            continue
-        trucks.append(p)
+        trucks.append(np.clip(p, 3, grid - 3))
     return np.array(trucks)
 
 
@@ -144,13 +142,12 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
     sim, foyer, assets = setup(grid, n_assets, seed)
     amask = asset_mask(assets, grid)
     na_cells = int(amask.sum())
-    n_trucks = n_attack_trucks + n_def_trucks
-    trucks = place_trucks(grid, n_trucks, foyer, seed)
+    # place each fleet's trucks evenly around the fire (defenders surround the
+    # perimeter so every arc has a nearby launch point)
+    atk_trucks = place_trucks(grid, n_attack_trucks, foyer, seed)
+    def_trucks = place_trucks(grid, n_def_trucks, foyer, seed + 50)
+    trucks = np.vstack([atk_trucks, def_trucks])
     n_trucks = len(trucks)
-    n_attack_trucks = min(n_attack_trucks, n_trucks)
-    n_def_trucks = n_trucks - n_attack_trucks
-    atk_trucks = trucks[:n_attack_trucks]
-    def_trucks = trucks[n_attack_trucks:]
     rng = np.random.default_rng(seed + 2)
 
     if use_fleet:
@@ -172,8 +169,11 @@ def run(grid, n_attack_trucks, n_def_trucks, dpt_attack, dpt_def, n_assets,
         Nd = n_def_trucks * dpt_def
         d_home = np.repeat(np.arange(n_def_trucks), dpt_def)[:Nd]
         d_pos = def_trucks[d_home] + rng.uniform(-2, 2, (Nd, 2))
-        # round-robin slot assignment guarantees every line slot is covered
-        # (more drones than slots -> a gap-free, fully-closed line).
+        # Round-robin floods every slot with drones from BOTH trucks, so the
+        # fastest one closes each slot. With only a couple of launch points this
+        # beats a single nearest-slot assignment (which starves arcs far from
+        # every truck); the real lever for tighter containment is truck count/
+        # placement, not the assignment policy.
         d_slot = np.arange(Nd) % len(rings)
         d_target = rings[d_slot]
         d_tank = np.full(Nd, DTANK)
